@@ -62,7 +62,7 @@ MiniMax（海螺AI）接口转API [hailuo-free-api](https://github.com/LLM-Red-T
 
 ## 在线体验
 
-正在准备中...
+https://udify.app/chat/IWOnEupdZcfCN0y7
 
 ## 效果示例
 
