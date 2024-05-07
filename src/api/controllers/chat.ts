@@ -41,6 +41,9 @@ const accessTokenMap = new Map();
 // access_token请求队列映射
 const accessTokenRequestQueueMap: Record<string, Function[]> = {};
 
+// 聊天异步锁
+const chatLock = new AsyncLock();
+
 /**
  * 请求access_token
  *
@@ -160,30 +163,33 @@ async function createCompletion(
   return (async () => {
     logger.info(messages);
 
-    // 清除上下文
-    await clearContext(model, refreshToken);
-    // 请求流
-    const token = await acquireToken(refreshToken);
-    const result = await axios.post(
-      "https://chat.deepseek.com/api/v0/chat/completions",
-      {
-        message: messagesPrepare(messages),
-        stream: true,
-        model_preference: null,
-        model_class: "deepseek_chat",
-        temperature: 0
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          ...FAKE_HEADERS
+    // 确保当前请求有干净上下文
+    const result = await chatLock.acquire(refreshToken, async () => {
+      // 清除上下文
+      await clearContext(model, refreshToken);
+      // 请求流
+      const token = await acquireToken(refreshToken);
+      return await axios.post(
+        "https://chat.deepseek.com/api/v0/chat/completions",
+        {
+          message: messagesPrepare(messages),
+          stream: true,
+          model_preference: null,
+          model_class: "deepseek_chat",
+          temperature: 0
         },
-        // 120秒超时
-        timeout: 120000,
-        validateStatus: () => true,
-        responseType: "stream",
-      }
-    );
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            ...FAKE_HEADERS
+          },
+          // 120秒超时
+          timeout: 120000,
+          validateStatus: () => true,
+          responseType: "stream",
+        }
+      );
+    });
 
     if (result.headers["content-type"].indexOf("text/event-stream") == -1) {
       result.data.on("data", buffer => logger.error(buffer.toString()));
@@ -235,30 +241,34 @@ async function createCompletionStream(
 ) {
   return (async () => {
     logger.info(messages);
-    // 清除上下文
-    await clearContext(model, refreshToken);
-    // 请求流
-    const token = await acquireToken(refreshToken);
-    const result = await axios.post(
-      "https://chat.deepseek.com/api/v0/chat/completions",
-      {
-        message: messagesPrepare(messages),
-        stream: true,
-        model_preference: null,
-        model_class: "deepseek_chat",
-        temperature: 0
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          ...FAKE_HEADERS
+
+    const result = await chatLock.acquire(refreshToken, async () => {
+      // 清除上下文
+      await clearContext(model, refreshToken);
+      // 请求流
+      const token = await acquireToken(refreshToken);
+      return await axios.post(
+        "https://chat.deepseek.com/api/v0/chat/completions",
+        {
+          message: messagesPrepare(messages),
+          stream: true,
+          model_preference: null,
+          model_class: "deepseek_chat",
+          temperature: 0
         },
-        // 120秒超时
-        timeout: 120000,
-        validateStatus: () => true,
-        responseType: "stream",
-      }
-    );
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            ...FAKE_HEADERS
+          },
+          // 120秒超时
+          timeout: 120000,
+          validateStatus: () => true,
+          responseType: "stream",
+        }
+      );
+    });
+
     if (result.headers["content-type"].indexOf("text/event-stream") == -1) {
       logger.error(
         `Invalid response Content-Type:`,
