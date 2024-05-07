@@ -1,4 +1,4 @@
-# GLM AI Free 服务
+# DeepSeek Free 服务
 
 [![](https://img.shields.io/github/license/llm-red-team/deepseek-free-api.svg)](LICENSE)
 ![](https://img.shields.io/github/stars/llm-red-team/deepseek-free-api.svg)
@@ -42,9 +42,6 @@ MiniMax（海螺AI）接口转API [hailuo-free-api](https://github.com/LLM-Red-T
 * [推荐使用客户端](#推荐使用客户端)
 * [接口列表](#接口列表)
   * [对话补全](#对话补全)
-  * [AI绘图](#AI绘图)
-  * [文档解读](#文档解读)
-  * [图像解析](#图像解析)
   * [userToken value存活检测](#userToken value存活检测)
 * [注意事项](#注意事项)
   * [Nginx反代优化](#Nginx反代优化)
