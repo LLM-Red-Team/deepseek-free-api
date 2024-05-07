@@ -175,7 +175,7 @@ async function createCompletion(
           message: messagesPrepare(messages),
           stream: true,
           model_preference: null,
-          model_class: "deepseek_chat",
+          model_class: model,
           temperature: 0
         },
         {
@@ -253,7 +253,7 @@ async function createCompletionStream(
           message: messagesPrepare(messages),
           stream: true,
           model_preference: null,
-          model_class: "deepseek_chat",
+          model_class: model,
           temperature: 0
         },
         {
