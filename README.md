@@ -1,4 +1,4 @@
-# GLM AI Free 服务
+# DeepSeek Free 服务
 
 [![](https://img.shields.io/github/license/llm-red-team/deepseek-free-api.svg)](LICENSE)
 ![](https://img.shields.io/github/stars/llm-red-team/deepseek-free-api.svg)
