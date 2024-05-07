@@ -42,7 +42,7 @@ MiniMax（海螺AI）接口转API [hailuo-free-api](https://github.com/LLM-Red-T
 * [推荐使用客户端](#推荐使用客户端)
 * [接口列表](#接口列表)
   * [对话补全](#对话补全)
-  * [userToken value存活检测](#userToken value存活检测)
+  * [userToken存活检测](#userToken存活检测)
 * [注意事项](#注意事项)
   * [Nginx反代优化](#Nginx反代优化)
   * [Token统计](#Token统计)
@@ -62,7 +62,7 @@ MiniMax（海螺AI）接口转API [hailuo-free-api](https://github.com/LLM-Red-T
 
 ## 在线体验
 
-正在准备中...
+https://udify.app/chat/IWOnEupdZcfCN0y7
 
 ## 效果示例
 
