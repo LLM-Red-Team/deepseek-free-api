@@ -411,7 +411,7 @@ async function receiveStream(model: string, stream: any): Promise<any> {
         const result = _.attempt(() => JSON.parse(event.data));
         if (_.isError(result))
           throw new Error(`Stream response invalid: ${event.data}`);
-        if (!result.choices || !result.choices[0] || !result.choices[0].delta || !result.choices[0].delta.content || result.choices[0].delta.content.trim() == '')
+        if (!result.choices || !result.choices[0] || !result.choices[0].delta || !result.choices[0].delta.content || result.choices[0].delta.content == ' ')
           return;
         data.choices[0].message.content += result.choices[0].delta.content;
         if (result.choices && result.choices[0] && result.choices[0].finish_reason === "stop")
@@ -465,7 +465,7 @@ function createTransStream(model: string, stream: any, endCallback?: Function) {
       const result = _.attempt(() => JSON.parse(event.data));
       if (_.isError(result))
         throw new Error(`Stream response invalid: ${event.data}`);
-      if (!result.choices || !result.choices[0] || !result.choices[0].delta || !result.choices[0].delta.content || result.choices[0].delta.content.trim() == '')
+      if (!result.choices || !result.choices[0] || !result.choices[0].delta || !result.choices[0].delta.content || result.choices[0].delta.content == ' ')
         return;
       result.model = model;
       transStream.write(`data: ${JSON.stringify({
