@@ -66,13 +66,21 @@ https://udify.app/chat/IWOnEupdZcfCN0y7
 
 ## 效果示例
 
-正在准备中...
+### 验明正身Demo
+
+![验明正身](./doc/example-1.png)
+
+### 多轮对话Demo
+
+![多轮对话](./doc/example-2.png)
 
 ## 接入准备
 
 从 [DeepSeek](https://chat.deepseek.com/) 获取userToken value
 
 进入DeepSeek随便发起一个对话，然后F12打开开发者工具，从Application > LocalStorage中找到`userToken`中的value值，这将作为Authorization的Bearer Token值：`Authorization: Bearer TOKEN`
+
+![获取userToken](./doc/example-0.png)
 
 ### 多账号接入
 
