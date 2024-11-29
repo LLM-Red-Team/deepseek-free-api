@@ -19,23 +19,16 @@ export default {
             const tokens = chat.tokenSplit(request.headers.authorization);
             // 随机挑选一个token
             const token = _.sample(tokens);
-            let { model, messages, stream } = request.body;
-            if(['deepseek_chat', 'deepseek_code', 'deepseek-chat*', 'deepseek-chat', 'deepseek-coder'].includes(model))
-                model = {
-                    'deepseek-chat*': 'deepseek_chat',
-                    'deepseek-chat': 'deepseek_chat',
-                    'deepseek-coder': 'deepseek_code'
-                }[model] || model;
-            else
-                model = 'deepseek_chat';
+            let { model, conversation_id: convId, messages, stream } = request.body;
+            model = model.toLowerCase();
             if (stream) {
-                const stream = await chat.createCompletionStream(model, messages, token);
+                const stream = await chat.createCompletionStream(model, messages, token, convId);
                 return new Response(stream, {
                     type: "text/event-stream"
                 });
             }
             else
-                return await chat.createCompletion(model, messages, token);
+                return await chat.createCompletion(model, messages, token, convId);
         }
 
     }

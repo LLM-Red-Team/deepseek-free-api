@@ -5,7 +5,7 @@
 ![](https://img.shields.io/github/forks/llm-red-team/deepseek-free-api.svg)
 ![](https://img.shields.io/docker/pulls/vinlic/deepseek-free-api.svg)
 
-支持高速流式输出、支持多轮对话，零配置部署，多路token支持。
+支持高速流式输出、支持多轮对话、支持R1深度思考和静默深度思考，零配置部署，多路token支持。
 
 与ChatGPT接口完全兼容。
 
@@ -236,15 +236,22 @@ Authorization: Bearer [userToken value]
 请求数据：
 ```json
 {
-    // model必须为deepseek_chat或deepseek_code
-    "model": "deepseek_chat",
+    // model名称
+    // 默认：deepseek
+    // 深度思考：deepseek-think 或 deepseek-r1
+    // 静默深度思考（不输出思考过程）：deepseek-think-silent 或 deepseek-r1-silent
+    // 深度思考但思考过程使用<details>可折叠标签包裹（需要页面支持显示）：deepseek-think-fold 或 deepseek-r1-fold
+    "model": "deepseek",
+    // 默认多轮对话基于消息合并实现，某些场景可能导致能力下降且受单轮最大token数限制
+    // 如果您想获得原生的多轮对话体验，可以传入上一轮消息获得的id，来接续上下文
+    // "conversation_id": "50207e56-747e-4800-9068-c6fd618374ee@2",
     "messages": [
         {
             "role": "user",
             "content": "你是谁？"
         }
     ],
-    // 如果使用SSE流请设置为true，默认false
+    // 如果使用流式响应请设置为true，默认false
     "stream": false
 }
 ```
@@ -252,15 +259,15 @@ Authorization: Bearer [userToken value]
 响应数据：
 ```json
 {
-    "id": "",
-    "model": "deepseek_chat",
+    "id": "50207e56-747e-4800-9068-c6fd618374ee@2",
+    "model": "deepseek",
     "object": "chat.completion",
     "choices": [
         {
             "index": 0,
             "message": {
                 "role": "assistant",
-                "content": " 我是DeepSeek Chat，一个由中国深度求索公司开发的智能助手，基于人工智能技术构建，旨在通过自然语言处理和机器学习算法来提供信息查询、对话交流和解答问题等服务。我的设计理念是遵循社会主义核心价值观，致力于为用户提供准确、安全、有益的信息和帮助。"
+                "content": " 我是DeepSeek Chat，一个由深度求索公司开发的智能助手，旨在通过自然语言处理和机器学习技术来提供信息查询、对话交流和解答问题等服务。"
             },
             "finish_reason": "stop"
         }

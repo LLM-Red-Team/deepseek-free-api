@@ -21,20 +21,21 @@ const RETRY_DELAY = 5000;
 const FAKE_HEADERS = {
   Accept: "*/*",
   "Accept-Encoding": "gzip, deflate, br, zstd",
-  "Accept-Language": "zh-CN,zh;q=0.9",
+  "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
   Origin: "https://chat.deepseek.com",
   Pragma: "no-cache",
+  Priority: "u=1, i",
   Referer: "https://chat.deepseek.com/",
   "Sec-Ch-Ua":
-    '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+    '"Chromium";v="130", "Google Chrome";v="130", "Not?A_Brand";v="99"',
   "Sec-Ch-Ua-Mobile": "?0",
   "Sec-Ch-Ua-Platform": '"Windows"',
   "Sec-Fetch-Dest": "empty",
   "Sec-Fetch-Mode": "cors",
   "Sec-Fetch-Site": "same-origin",
   "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  "X-App-Version": "20240126.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+  "X-App-Version": "20241018.0",
 };
 // access_token映射
 const accessTokenMap = new Map();
@@ -121,6 +122,16 @@ async function acquireToken(refreshToken: string): Promise<string> {
 }
 
 /**
+ * 生成cookie
+ */
+function generateCookie() {
+  return `intercom-HWWAFSESTIME=${util.timestamp()}; HWWAFSESID=${util.generateRandomString({
+    charset: 'hex',
+    length: 18
+  })}; Hm_lvt_${util.uuid(false)}=${util.unixTimestamp()},${util.unixTimestamp()},${util.unixTimestamp()}; Hm_lpvt_${util.uuid(false)}=${util.unixTimestamp()}; _frid=${util.uuid(false)}; _fr_ssid=${util.uuid(false)}; _fr_pvid=${util.uuid(false)}`
+}
+
+/**
  * 清除上下文
  *
  * @param model 模型名称
@@ -146,50 +157,81 @@ async function clearContext(model: string, refreshToken: string) {
   checkResult(result, refreshToken);
 }
 
+async function createSession(model: string, refreshToken: string): Promise<string> {
+  const token = await acquireToken(refreshToken);
+  const result = await axios.post(
+    "https://chat.deepseek.com/api/v0/chat_session/create",
+    {
+      agent: "chat",
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...FAKE_HEADERS,
+      },
+      timeout: 15000,
+      validateStatus: () => true,
+    }
+  );
+  const { biz_data } = checkResult(result, refreshToken);
+  return biz_data.id;
+}
+
 /**
  * 同步对话补全
  *
  * @param model 模型名称
  * @param messages 参考gpt系列消息格式，多轮对话请完整提供上下文
  * @param refreshToken 用于刷新access_token的refresh_token
+ * @param refConvId 引用对话ID
  * @param retryCount 重试次数
  */
 async function createCompletion(
   model = MODEL_NAME,
   messages: any[],
   refreshToken: string,
+  refConvId?: string,
   retryCount = 0
 ) {
   return (async () => {
     logger.info(messages);
 
-    // 确保当前请求有干净上下文
-    const result = await chatLock.acquire(refreshToken, async () => {
-      // 清除上下文
-      await clearContext(model, refreshToken);
-      // 请求流
-      const token = await acquireToken(refreshToken);
-      return await axios.post(
-        "https://chat.deepseek.com/api/v0/chat/completions",
-        {
-          message: messagesPrepare(messages),
-          stream: true,
-          model_preference: null,
-          model_class: model,
-          temperature: 0
+    // 如果引用对话ID不正确则重置引用
+    if (!/[0-9a-z\-]{36}@[0-9]+/.test(refConvId))
+      refConvId = null;
+
+    // 消息预处理
+    const prompt = messagesPrepare(messages);
+
+    // 解析引用对话ID
+    const [refSessionId, refParentMsgId] = refConvId?.split('@') || [];
+
+    // 创建会话
+    const sessionId = refSessionId || await createSession(model, refreshToken);
+    // 请求流
+    const token = await acquireToken(refreshToken);
+
+    const result = await axios.post(
+      "https://chat.deepseek.com/api/v0/chat/completion",
+      {
+        chat_session_id: sessionId,
+        parent_message_id: refParentMsgId || null,
+        prompt,
+        ref_file_ids: [],
+        thinking_enabled: (model.includes('think') || model.includes('r1') || prompt.includes('深度思考')) ? true : false
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...FAKE_HEADERS,
+          Cookie: generateCookie()
         },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            ...FAKE_HEADERS
-          },
-          // 120秒超时
-          timeout: 120000,
-          validateStatus: () => true,
-          responseType: "stream",
-        }
-      );
-    });
+        // 120秒超时
+        timeout: 120000,
+        validateStatus: () => true,
+        responseType: "stream",
+      }
+    );
 
     if (result.headers["content-type"].indexOf("text/event-stream") == -1) {
       result.data.on("data", buffer => logger.error(buffer.toString()));
@@ -201,7 +243,7 @@ async function createCompletion(
 
     const streamStartTime = util.timestamp();
     // 接收流为输出文本
-    const answer = await receiveStream(model, result.data);
+    const answer = await receiveStream(model, result.data, sessionId);
     logger.success(
       `Stream has completed transfer ${util.timestamp() - streamStartTime}ms`
     );
@@ -217,6 +259,7 @@ async function createCompletion(
           model,
           messages,
           refreshToken,
+          refConvId,
           retryCount + 1
         );
       })();
@@ -231,43 +274,55 @@ async function createCompletion(
  * @param model 模型名称
  * @param messages 参考gpt系列消息格式，多轮对话请完整提供上下文
  * @param refreshToken 用于刷新access_token的refresh_token
+ * @param refConvId 引用对话ID
  * @param retryCount 重试次数
  */
 async function createCompletionStream(
   model = MODEL_NAME,
   messages: any[],
   refreshToken: string,
+  refConvId?: string,
   retryCount = 0
 ) {
   return (async () => {
     logger.info(messages);
 
-    const result = await chatLock.acquire(refreshToken, async () => {
-      // 清除上下文
-      await clearContext(model, refreshToken);
-      // 请求流
-      const token = await acquireToken(refreshToken);
-      return await axios.post(
-        "https://chat.deepseek.com/api/v0/chat/completions",
-        {
-          message: messagesPrepare(messages),
-          stream: true,
-          model_preference: null,
-          model_class: model,
-          temperature: 0
+    // 如果引用对话ID不正确则重置引用
+    if (!/[0-9a-z\-]{36}@[0-9]+/.test(refConvId))
+      refConvId = null;
+
+    // 消息预处理
+    const prompt = messagesPrepare(messages);
+
+    // 解析引用对话ID
+    const [refSessionId, refParentMsgId] = refConvId?.split('@') || [];
+
+    // 创建会话
+    const sessionId = refSessionId || await createSession(model, refreshToken);
+    // 请求流
+    const token = await acquireToken(refreshToken);
+
+    const result = await axios.post(
+      "https://chat.deepseek.com/api/v0/chat/completion",
+      {
+        chat_session_id: sessionId,
+        parent_message_id: refParentMsgId || null,
+        prompt,
+        ref_file_ids: [],
+        thinking_enabled: (model.includes('think') || model.includes('r1') || prompt.includes('深度思考')) ? true : false
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...FAKE_HEADERS,
+          Cookie: generateCookie()
         },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            ...FAKE_HEADERS
-          },
-          // 120秒超时
-          timeout: 120000,
-          validateStatus: () => true,
-          responseType: "stream",
-        }
-      );
-    });
+        // 120秒超时
+        timeout: 120000,
+        validateStatus: () => true,
+        responseType: "stream",
+      }
+    );
 
     if (result.headers["content-type"].indexOf("text/event-stream") == -1) {
       logger.error(
@@ -299,7 +354,7 @@ async function createCompletionStream(
     }
     const streamStartTime = util.timestamp();
     // 创建转换流将消息格式转换为gpt兼容格式
-    return createTransStream(model, result.data, () => {
+    return createTransStream(model, result.data, sessionId, () => {
       logger.success(
         `Stream has completed transfer ${util.timestamp() - streamStartTime}ms`
       );
@@ -314,6 +369,7 @@ async function createCompletionStream(
           model,
           messages,
           refreshToken,
+          refConvId,
           retryCount + 1
         );
       })();
@@ -387,7 +443,12 @@ function checkResult(result: AxiosResponse, refreshToken: string) {
  * @param model 模型名称
  * @param stream 消息流
  */
-async function receiveStream(model: string, stream: any): Promise<any> {
+async function receiveStream(model: string, stream: any, refConvId?: string): Promise<any> {
+  let thinking = false;
+  const isThinkingModel = model.includes('think') || model.includes('r1');
+  const isSilentModel = model.includes('silent');
+  const isFoldModel = model.includes('fold');
+  logger.info(`模型: ${model}, 是否思考: ${isThinkingModel}, 是否静默思考: ${isSilentModel}, 是否折叠思考: ${isFoldModel}`);
   return new Promise((resolve, reject) => {
     // 消息初始化
     const data = {
@@ -406,16 +467,32 @@ async function receiveStream(model: string, stream: any): Promise<any> {
     };
     const parser = createParser((event) => {
       try {
-        if (event.type !== "event") return;
+        if (event.type !== "event" || event.data.trim() == "[DONE]") return;
         // 解析JSON
         const result = _.attempt(() => JSON.parse(event.data));
         if (_.isError(result))
           throw new Error(`Stream response invalid: ${event.data}`);
         if (!result.choices || !result.choices[0] || !result.choices[0].delta || !result.choices[0].delta.content)
           return;
+        if (!data.id)
+          data.id = `${refConvId}@${result.message_id}`;
+        if (result.choices[0].delta.type === "thinking") {
+          if (!thinking && isThinkingModel && !isSilentModel) {
+            thinking = true;
+            data.choices[0].message.content += isFoldModel ? "<details><summary>思考过程</summary><pre>" : "[思考开始]";
+          }
+          if (isSilentModel)
+            return;
+        }
+        else if (thinking && isThinkingModel && !isSilentModel) {
+          thinking = false;
+          data.choices[0].message.content += isFoldModel ? "</pre></details>" : "[思考结束]";
+        }
         data.choices[0].message.content += result.choices[0].delta.content;
-        if (result.choices && result.choices[0] && result.choices[0].finish_reason === "stop")
+        if (result.choices && result.choices[0] && result.choices[0].finish_reason === "stop") {
+          data.choices[0].message.content = data.choices[0].message.content.replace(/^\n+/, '');
           resolve(data);
+        }
       } catch (err) {
         logger.error(err);
         reject(err);
@@ -437,7 +514,12 @@ async function receiveStream(model: string, stream: any): Promise<any> {
  * @param stream 消息流
  * @param endCallback 传输结束回调
  */
-function createTransStream(model: string, stream: any, endCallback?: Function) {
+function createTransStream(model: string, stream: any, refConvId: string, endCallback?: Function) {
+  let thinking = false;
+  const isThinkingModel = model.includes('think') || model.includes('r1');
+  const isSilentModel = model.includes('silent');
+  const isFoldModel = model.includes('fold');
+  logger.info(`模型: ${model}, 是否思考: ${isThinkingModel}, 是否静默思考: ${isSilentModel}, 是否折叠思考: ${isFoldModel}`);
   // 消息创建时间
   const created = util.unixTimestamp();
   // 创建转换流
@@ -460,7 +542,7 @@ function createTransStream(model: string, stream: any, endCallback?: Function) {
     );
   const parser = createParser((event) => {
     try {
-      if (event.type !== "event") return;
+      if (event.type !== "event" || event.data.trim() == "[DONE]") return;
       // 解析JSON
       const result = _.attempt(() => JSON.parse(event.data));
       if (_.isError(result))
@@ -468,8 +550,45 @@ function createTransStream(model: string, stream: any, endCallback?: Function) {
       if (!result.choices || !result.choices[0] || !result.choices[0].delta || !result.choices[0].delta.content)
         return;
       result.model = model;
+      if (result.choices[0].delta.type === "thinking") {
+        if (!thinking && isThinkingModel && !isSilentModel) {
+          thinking = true;
+          transStream.write(`data: ${JSON.stringify({
+            id: `${refConvId}@${result.message_id}`,
+            model: result.model,
+            object: "chat.completion.chunk",
+            choices: [
+              {
+                index: 0,
+                delta: { role: "assistant", content: isFoldModel ? "<details><summary>思考过程</summary><pre>" : "[思考开始]" },
+                finish_reason: null,
+              },
+            ],
+            created,
+          })}\n\n`);
+        }
+        if (isSilentModel)
+          return;
+      }
+      else if (thinking && isThinkingModel && !isSilentModel) {
+        thinking = false;
+        transStream.write(`data: ${JSON.stringify({
+          id: `${refConvId}@${result.message_id}`,
+          model: result.model,
+          object: "chat.completion.chunk",
+          choices: [
+            {
+              index: 0,
+              delta: { role: "assistant", content: isFoldModel ? "</pre></details>" : "[思考结束]" },
+              finish_reason: null,
+            },
+          ],
+          created,
+        })}\n\n`);
+      }
+
       transStream.write(`data: ${JSON.stringify({
-        id: result.id,
+        id: `${refConvId}@${result.message_id}`,
         model: result.model,
         object: "chat.completion.chunk",
         choices: [
@@ -483,7 +602,7 @@ function createTransStream(model: string, stream: any, endCallback?: Function) {
       })}\n\n`);
       if (result.choices && result.choices[0] && result.choices[0].finish_reason === "stop") {
         transStream.write(`data: ${JSON.stringify({
-          id: result.id,
+          id: `${refConvId}@${result.message_id}`,
           model: result.model,
           object: "chat.completion.chunk",
           choices: [
@@ -496,6 +615,7 @@ function createTransStream(model: string, stream: any, endCallback?: Function) {
           created,
         })}\n\n`);
         !transStream.closed && transStream.end("data: [DONE]\n\n");
+        endCallback && endCallback();
       }
     } catch (err) {
       logger.error(err);
