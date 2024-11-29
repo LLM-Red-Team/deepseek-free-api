@@ -174,6 +174,8 @@ async function createSession(model: string, refreshToken: string): Promise<strin
     }
   );
   const { biz_data } = checkResult(result, refreshToken);
+  if (!biz_data)
+    throw new APIException(EX.API_REQUEST_FAILED, "创建会话失败，可能是账号存在异常");
   return biz_data.id;
 }
 
