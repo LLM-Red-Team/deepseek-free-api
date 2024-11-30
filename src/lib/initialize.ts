@@ -1,4 +1,6 @@
 import logger from './logger.js';
+import chat from "@/api/controllers/chat.ts";
+import environment from "./environment.ts";
 
 // 允许无限量的监听器
 process.setMaxListeners(Infinity);
