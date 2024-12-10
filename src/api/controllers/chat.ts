@@ -203,6 +203,7 @@ async function createCompletion(
     // 请求流
     const token = await acquireToken(refreshToken);
 
+    const isSearchModel = model.includes('search') || prompt.includes('联网搜索');
     const isThinkingModel = model.includes('think') || model.includes('r1') || prompt.includes('深度思考');
 
     if (isThinkingModel) {
@@ -219,6 +220,7 @@ async function createCompletion(
         parent_message_id: refParentMsgId || null,
         prompt,
         ref_file_ids: [],
+        search_enabled: isSearchModel,
         thinking_enabled: isThinkingModel
       },
       {
@@ -301,6 +303,7 @@ async function createCompletionStream(
     // 解析引用对话ID
     const [refSessionId, refParentMsgId] = refConvId?.split('@') || [];
 
+    const isSearchModel = model.includes('search') || prompt.includes('联网搜索');
     const isThinkingModel = model.includes('think') || model.includes('r1') || prompt.includes('深度思考');
 
     if (isThinkingModel) {
@@ -322,6 +325,7 @@ async function createCompletionStream(
         parent_message_id: refParentMsgId || null,
         prompt,
         ref_file_ids: [],
+        search_enabled: isSearchModel,
         thinking_enabled: isThinkingModel
       },
       {
@@ -461,10 +465,12 @@ function checkResult(result: AxiosResponse, refreshToken: string) {
  */
 async function receiveStream(model: string, stream: any, refConvId?: string): Promise<any> {
   let thinking = false;
+  const isSearchModel = model.includes('search');
   const isThinkingModel = model.includes('think') || model.includes('r1');
   const isSilentModel = model.includes('silent');
   const isFoldModel = model.includes('fold');
-  logger.info(`模型: ${model}, 是否思考: ${isThinkingModel}, 是否静默思考: ${isSilentModel}, 是否折叠思考: ${isFoldModel}`);
+  logger.info(`模型: ${model}, 是否思考: ${isThinkingModel} 是否联网搜索: ${isSearchModel}, 是否静默思考: ${isSilentModel}, 是否折叠思考: ${isFoldModel}`);
+  let refContent = '';
   return new Promise((resolve, reject) => {
     // 消息初始化
     const data = {
@@ -488,10 +494,15 @@ async function receiveStream(model: string, stream: any, refConvId?: string): Pr
         const result = _.attempt(() => JSON.parse(event.data));
         if (_.isError(result))
           throw new Error(`Stream response invalid: ${event.data}`);
-        if (!result.choices || !result.choices[0] || !result.choices[0].delta || !result.choices[0].delta.content)
+        if (!result.choices || !result.choices[0] || !result.choices[0].delta)
           return;
         if (!data.id)
           data.id = `${refConvId}@${result.message_id}`;
+        if(result.choices[0].delta.type === "search_result" && !isSilentModel) {
+          const searchResults = result.choices[0]?.delta?.search_results || [];
+          refContent += searchResults.map(item => `${item.title} - ${item.url}`).join('\n');
+          return;
+        }
         if (result.choices[0].delta.type === "thinking") {
           if (!thinking && isThinkingModel && !isSilentModel) {
             thinking = true;
@@ -504,9 +515,10 @@ async function receiveStream(model: string, stream: any, refConvId?: string): Pr
           thinking = false;
           data.choices[0].message.content += isFoldModel ? "</pre></details>" : "[思考结束]";
         }
-        data.choices[0].message.content += result.choices[0].delta.content;
+        if(result.choices[0].delta.content)
+          data.choices[0].message.content += result.choices[0].delta.content;
         if (result.choices && result.choices[0] && result.choices[0].finish_reason === "stop") {
-          data.choices[0].message.content = data.choices[0].message.content.replace(/^\n+/, '');
+          data.choices[0].message.content = data.choices[0].message.content.replace(/^\n+/, '').replace(/\[citation:\d+\]/g, '') + (refContent ? `\n\n搜索结果来自：\n${refContent}` : '');
           resolve(data);
         }
       } catch (err) {
@@ -532,10 +544,11 @@ async function receiveStream(model: string, stream: any, refConvId?: string): Pr
  */
 function createTransStream(model: string, stream: any, refConvId: string, endCallback?: Function) {
   let thinking = false;
+  const isSearchModel = model.includes('search');
   const isThinkingModel = model.includes('think') || model.includes('r1');
   const isSilentModel = model.includes('silent');
   const isFoldModel = model.includes('fold');
-  logger.info(`模型: ${model}, 是否思考: ${isThinkingModel}, 是否静默思考: ${isSilentModel}, 是否折叠思考: ${isFoldModel}`);
+  logger.info(`模型: ${model}, 是否思考: ${isThinkingModel}, 是否联网搜索: ${isSearchModel}, 是否静默思考: ${isSilentModel}, 是否折叠思考: ${isFoldModel}`);
   // 消息创建时间
   const created = util.unixTimestamp();
   // 创建转换流
@@ -563,9 +576,28 @@ function createTransStream(model: string, stream: any, refConvId: string, endCal
       const result = _.attempt(() => JSON.parse(event.data));
       if (_.isError(result))
         throw new Error(`Stream response invalid: ${event.data}`);
-      if (!result.choices || !result.choices[0] || !result.choices[0].delta || !result.choices[0].delta.content)
+      if (!result.choices || !result.choices[0] || !result.choices[0].delta)
         return;
       result.model = model;
+      if (result.choices[0].delta.type === "search_result" && !isSilentModel) {
+        const searchResults = result.choices[0]?.delta?.search_results || [];
+        if (searchResults.length > 0) {
+          const refContent = searchResults.map(item => `检索 ${item.title} - ${item.url}`).join('\n') + '\n\n';
+          transStream.write(`data: ${JSON.stringify({
+            id: `${refConvId}@${result.message_id}`,
+            model: result.model,
+            object: "chat.completion.chunk",
+            choices: [
+              {
+                index: 0,
+                delta: { role: "assistant", content: refContent },
+                finish_reason: null,
+              },
+            ],
+          })}\n\n`);
+        }
+        return;
+      }
       if (result.choices[0].delta.type === "thinking") {
         if (!thinking && isThinkingModel && !isSilentModel) {
           thinking = true;
@@ -603,6 +635,9 @@ function createTransStream(model: string, stream: any, refConvId: string, endCal
         })}\n\n`);
       }
 
+      if(!result.choices[0].delta.content)
+        return;
+
       transStream.write(`data: ${JSON.stringify({
         id: `${refConvId}@${result.message_id}`,
         model: result.model,
@@ -610,7 +645,7 @@ function createTransStream(model: string, stream: any, refConvId: string, endCal
         choices: [
           {
             index: 0,
-            delta: { role: "assistant", content: result.choices[0].delta.content },
+            delta: { role: "assistant", content: result.choices[0].delta.content.replace(/\[citation:\d+\]/g, '') },
             finish_reason: null,
           },
         ],

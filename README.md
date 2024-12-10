@@ -5,7 +5,7 @@
 ![](https://img.shields.io/github/forks/llm-red-team/deepseek-free-api.svg)
 ![](https://img.shields.io/docker/pulls/vinlic/deepseek-free-api.svg)
 
-支持高速流式输出、支持多轮对话、支持R1深度思考和静默深度思考，零配置部署，多路token支持。
+支持高速流式输出、支持多轮对话、支持联网搜索、支持R1深度思考和静默深度思考，零配置部署，多路token支持。
 
 与ChatGPT接口完全兼容。
 
@@ -75,6 +75,10 @@ https://udify.app/chat/IWOnEupdZcfCN0y7
 ### 多轮对话Demo
 
 ![多轮对话](./doc/example-2.png)
+
+### 联网搜索Demo
+
+![联网搜索](./doc/example-3.png)
 
 ## 接入准备
 
@@ -241,7 +245,8 @@ Authorization: Bearer [userToken value]
     // model名称
     // 默认：deepseek
     // 深度思考：deepseek-think 或 deepseek-r1
-    // 静默深度思考（不输出思考过程）：deepseek-think-silent 或 deepseek-r1-silent
+    // 联网搜索：deepseek-search
+    // 静默模式（不输出思考过程或联网搜索结果）：deepseek-think-silent 或 deepseek-r1-silent 或 deepseek-search-silent
     // 深度思考但思考过程使用<details>可折叠标签包裹（需要页面支持显示）：deepseek-think-fold 或 deepseek-r1-fold
     "model": "deepseek",
     // 默认多轮对话基于消息合并实现，某些场景可能导致能力下降且受单轮最大token数限制
