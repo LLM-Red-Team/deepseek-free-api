@@ -767,7 +767,10 @@ function createTransStream(model: string, stream: any, refConvId: string, endCal
   );
   stream.once(
     "close",
-    () => !transStream.closed && transStream.end("data: [DONE]\n\n")
+    () => {
+      !transStream.closed && transStream.end("data: [DONE]\n\n");
+      endCallback && endCallback();
+    }
   );
   return transStream;
 }
