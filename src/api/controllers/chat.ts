@@ -1,6 +1,8 @@
 import { PassThrough } from "stream";
 import _ from "lodash";
 import axios, { AxiosResponse } from "axios";
+import { Worker } from 'worker_threads';
+import path from 'path';
 
 import APIException from "@/lib/exceptions/APIException.ts";
 import EX from "@/api/consts/exceptions.ts";
@@ -43,6 +45,27 @@ let ipAddress = '';
 const accessTokenMap = new Map();
 // access_token请求队列映射
 const accessTokenRequestQueueMap: Record<string, Function[]> = {};
+
+// 添加 worker 池
+const workerPool: (Worker & { inUse?: boolean })[] = [];
+const MAX_WORKERS = 4; // 可以根据需要调整
+
+function getWorker() {
+  // 从池中获取空闲worker或创建新worker
+  let worker = workerPool.find(w => !w.inUse);
+  if (!worker && workerPool.length < MAX_WORKERS) {
+    worker = new Worker(path.join(path.resolve(), 'challenge-worker.js'));
+    workerPool.push(worker);
+  }
+  if (worker) {
+    worker.inUse = true;
+  }
+  return worker;
+}
+
+function releaseWorker(worker: (Worker & { inUse?: boolean })) {
+  worker.inUse = false;
+}
 
 async function getIPAddress() {
   if (ipAddress) return ipAddress;
@@ -170,6 +193,59 @@ async function createSession(model: string, refreshToken: string): Promise<strin
 }
 
 /**
+ * 碰撞challenge答案
+ * 
+ * 厂商这个反逆向的策略不错哦
+ * 相当于把计算量放在浏览器侧的话，用户分摊了这个计算量
+ * 但是如果逆向在服务器上算，那这个成本都在服务器集中，并发一高就GG
+ */
+function answerChallenge(response: any): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const worker = getWorker();
+    if (!worker) {
+      reject(new Error('No available workers'));
+      return;
+    }
+
+    worker.once('message', (result) => {
+      releaseWorker(worker);
+      if (result.error) {
+        reject(new Error(result.error));
+      } else {
+        resolve(result);
+      }
+    });
+
+    worker.once('error', (error) => {
+      releaseWorker(worker);
+      reject(error);
+    });
+
+    worker.postMessage(response);
+  });
+}
+
+/**
+ * 获取challenge响应
+ *
+ * @param refreshToken 用于刷新access_token的refresh_token
+ */
+async function getChallengeResponse(refreshToken: string) {
+  const token = await acquireToken(refreshToken);
+  const result = await axios.get('https://chat.deepseek.com/api/v0/chat/challenge', {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...FAKE_HEADERS,
+        Cookie: generateCookie()
+    },
+    timeout: 15000,
+    validateStatus: () => true,
+  });
+  const { biz_data: { challenge } } = checkResult(result, refreshToken);
+  return challenge;
+}
+
+/**
  * 同步对话补全
  *
  * @param model 模型名称
@@ -205,12 +281,16 @@ async function createCompletion(
 
     const isSearchModel = model.includes('search') || prompt.includes('联网搜索');
     const isThinkingModel = model.includes('think') || model.includes('r1') || prompt.includes('深度思考');
-
+    
+    let challenge;
     if (isThinkingModel) {
       const thinkingQuota = await getThinkingQuota(refreshToken);
       if (thinkingQuota <= 0) {
         throw new APIException(EX.API_REQUEST_FAILED, '深度思考配额不足');
       }
+      const challengeResponse = await getChallengeResponse(refreshToken);
+      challenge = await answerChallenge(challengeResponse);
+      logger.info(`插冷鸡: ${JSON.stringify(challenge)}`);
     }
 
     const result = await axios.post(
@@ -218,6 +298,7 @@ async function createCompletion(
       {
         chat_session_id: sessionId,
         parent_message_id: refParentMsgId || null,
+        challenge_response: challenge,
         prompt,
         ref_file_ids: [],
         search_enabled: isSearchModel,
@@ -306,11 +387,15 @@ async function createCompletionStream(
     const isSearchModel = model.includes('search') || prompt.includes('联网搜索');
     const isThinkingModel = model.includes('think') || model.includes('r1') || prompt.includes('深度思考');
 
+    let challenge;
     if (isThinkingModel) {
       const thinkingQuota = await getThinkingQuota(refreshToken);
       if (thinkingQuota <= 0) {
         throw new APIException(EX.API_REQUEST_FAILED, '深度思考配额不足');
       }
+      const challengeResponse = await getChallengeResponse(refreshToken);
+      challenge = await answerChallenge(challengeResponse);
+      logger.info(`插冷鸡: ${JSON.stringify(challenge)}`);
     }
 
     // 创建会话
@@ -324,6 +409,7 @@ async function createCompletionStream(
         chat_session_id: sessionId,
         parent_message_id: refParentMsgId || null,
         prompt,
+        challenge_response: challenge,
         ref_file_ids: [],
         search_enabled: isSearchModel,
         thinking_enabled: isThinkingModel
@@ -1160,6 +1246,11 @@ getIPAddress().then(() => {
   autoUpdateAppVersion();
 }).catch((err) => {
   logger.error('获取 IP 地址失败:', err);
+});
+
+// 在程序退出时清理workers
+process.on('exit', () => {
+  workerPool.forEach(worker => worker.terminate());
 });
 
 export default {
