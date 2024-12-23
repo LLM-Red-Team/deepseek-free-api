@@ -1,6 +1,6 @@
 {
   "name": "deepseek-free-api",
-  "version": "0.0.10",
+  "version": "0.0.13",
   "description": "DeepSeek Free API Server",
   "type": "module",
   "main": "dist/index.js",
@@ -43,7 +43,7 @@
     "yaml": "^2.3.4"
   },
   "devDependencies": {
-    "@types/lodash": "^4.14.202",
+    "@types/lodash": "^4.17.13",
     "@types/mime": "^3.0.4",
     "tsup": "^8.0.2",
     "typescript": "^5.3.3"

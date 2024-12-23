@@ -7,11 +7,14 @@ import path from 'path';
 import APIException from "@/lib/exceptions/APIException.ts";
 import EX from "@/api/consts/exceptions.ts";
 import { createParser } from "eventsource-parser";
+import { DeepSeekHash } from "@/lib/challenge.ts";
 import logger from "@/lib/logger.ts";
 import util from "@/lib/util.ts";
 
 // 模型名称
 const MODEL_NAME = "deepseek-chat";
+// 插冷鸡WASM文件路径
+const WASM_PATH = './35144cac553a7a2a.wasm';
 // access_token有效期
 const ACCESS_TOKEN_EXPIRES = 3600;
 // 最大重试次数
@@ -199,30 +202,18 @@ async function createSession(model: string, refreshToken: string): Promise<strin
  * 相当于把计算量放在浏览器侧的话，用户分摊了这个计算量
  * 但是如果逆向在服务器上算，那这个成本都在服务器集中，并发一高就GG
  */
-function answerChallenge(response: any): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const worker = getWorker();
-    if (!worker) {
-      reject(new Error('No available workers'));
-      return;
-    }
-
-    worker.once('message', (result) => {
-      releaseWorker(worker);
-      if (result.error) {
-        reject(new Error(result.error));
-      } else {
-        resolve(result);
-      }
-    });
-
-    worker.once('error', (error) => {
-      releaseWorker(worker);
-      reject(error);
-    });
-
-    worker.postMessage(response);
-  });
+async function answerChallenge(response: any): Promise<any> {
+  const { algorithm, challenge, salt, difficulty, expire_at, signature } = response;
+  const deepSeekHash = new DeepSeekHash();
+  await deepSeekHash.init(WASM_PATH);
+  const answer = deepSeekHash.calculateHash(algorithm, challenge, salt, difficulty, expire_at);
+  return {
+    algorithm,
+    challenge,
+    salt,
+    answer,
+    signature
+  }
 }
 
 /**
@@ -236,7 +227,7 @@ async function getChallengeResponse(refreshToken: string) {
     headers: {
       Authorization: `Bearer ${token}`,
       ...FAKE_HEADERS,
-        Cookie: generateCookie()
+      Cookie: generateCookie()
     },
     timeout: 15000,
     validateStatus: () => true,
@@ -281,13 +272,19 @@ async function createCompletion(
 
     const isSearchModel = model.includes('search') || prompt.includes('联网搜索');
     const isThinkingModel = model.includes('think') || model.includes('r1') || prompt.includes('深度思考');
-    
-    let challenge;
+
+    if(isSearchModel && isThinkingModel)
+      throw new APIException(EX.API_REQUEST_FAILED, '深度思考和联网搜索不能同时使用');
+
     if (isThinkingModel) {
       const thinkingQuota = await getThinkingQuota(refreshToken);
       if (thinkingQuota <= 0) {
         throw new APIException(EX.API_REQUEST_FAILED, '深度思考配额不足');
       }
+    }
+
+    let challenge;
+    if (isSearchModel || isThinkingModel) {
       const challengeResponse = await getChallengeResponse(refreshToken);
       challenge = await answerChallenge(challengeResponse);
       logger.info(`插冷鸡: ${JSON.stringify(challenge)}`);
@@ -387,12 +384,18 @@ async function createCompletionStream(
     const isSearchModel = model.includes('search') || prompt.includes('联网搜索');
     const isThinkingModel = model.includes('think') || model.includes('r1') || prompt.includes('深度思考');
 
-    let challenge;
+    if(isSearchModel && isThinkingModel)
+      throw new APIException(EX.API_REQUEST_FAILED, '深度思考和联网搜索不能同时使用');
+
     if (isThinkingModel) {
       const thinkingQuota = await getThinkingQuota(refreshToken);
       if (thinkingQuota <= 0) {
         throw new APIException(EX.API_REQUEST_FAILED, '深度思考配额不足');
       }
+    }
+
+    let challenge;
+    if (isSearchModel || isThinkingModel) {
       const challengeResponse = await getChallengeResponse(refreshToken);
       challenge = await answerChallenge(challengeResponse);
       logger.info(`插冷鸡: ${JSON.stringify(challenge)}`);
@@ -584,7 +587,7 @@ async function receiveStream(model: string, stream: any, refConvId?: string): Pr
           return;
         if (!data.id)
           data.id = `${refConvId}@${result.message_id}`;
-        if(result.choices[0].delta.type === "search_result" && !isSilentModel) {
+        if (result.choices[0].delta.type === "search_result" && !isSilentModel) {
           const searchResults = result.choices[0]?.delta?.search_results || [];
           refContent += searchResults.map(item => `${item.title} - ${item.url}`).join('\n');
           return;
@@ -601,7 +604,7 @@ async function receiveStream(model: string, stream: any, refConvId?: string): Pr
           thinking = false;
           data.choices[0].message.content += isFoldModel ? "</pre></details>" : "[思考结束]";
         }
-        if(result.choices[0].delta.content)
+        if (result.choices[0].delta.content)
           data.choices[0].message.content += result.choices[0].delta.content;
         if (result.choices && result.choices[0] && result.choices[0].finish_reason === "stop") {
           data.choices[0].message.content = data.choices[0].message.content.replace(/^\n+/, '').replace(/\[citation:\d+\]/g, '') + (refContent ? `\n\n搜索结果来自：\n${refContent}` : '');
@@ -721,7 +724,7 @@ function createTransStream(model: string, stream: any, refConvId: string, endCal
         })}\n\n`);
       }
 
-      if(!result.choices[0].delta.content)
+      if (!result.choices[0].delta.content)
         return;
 
       transStream.write(`data: ${JSON.stringify({
