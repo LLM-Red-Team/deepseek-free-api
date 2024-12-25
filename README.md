@@ -34,7 +34,6 @@ MiniMax（海螺AI）接口转API [hailuo-free-api](https://github.com/LLM-Red-T
 ## 目录
 
 * [免责声明](#免责声明)
-* [在线体验](#在线体验)
 * [效果示例](#效果示例)
 * [接入准备](#接入准备)
   * [多账号接入](#多账号接入)
@@ -63,10 +62,6 @@ MiniMax（海螺AI）接口转API [hailuo-free-api](https://github.com/LLM-Red-T
 **仅限自用，禁止对外提供服务或商用，避免对官方造成服务压力，否则风险自担！**
 
 **仅限自用，禁止对外提供服务或商用，避免对官方造成服务压力，否则风险自担！**
-
-## 在线体验
-
-https://udify.app/chat/IWOnEupdZcfCN0y7
 
 ## 效果示例
 
