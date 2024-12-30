@@ -79,6 +79,8 @@ MiniMax（海螺AI）接口转API [hailuo-free-api](https://github.com/LLM-Red-T
 
 ## 接入准备
 
+请确保您在中国境内或者拥有中国境内的服务器，否则部署后可能因无法访问DeepSeek而无法使用。
+
 从 [DeepSeek](https://chat.deepseek.com/) 获取userToken value
 
 进入DeepSeek随便发起一个对话，然后F12打开开发者工具，从Application > LocalStorage中找到`userToken`中的value值，这将作为Authorization的Bearer Token值：`Authorization: Bearer TOKEN`
