@@ -367,6 +367,7 @@ async function createCompletion(
       {
         chat_session_id: sessionId,
         parent_message_id: refParentMsgId || null,
+        challenge_response: null,
         prompt,
         ref_file_ids: [],
         search_enabled: isSearchModel,
@@ -376,7 +377,8 @@ async function createCompletion(
         headers: {
           Authorization: `Bearer ${token}`,
           ...cloudflareAuth.getHeaders(),
-          Cookie: cloudflareAuth.getCookieString()
+          Cookie: cloudflareAuth.getCookieString(),
+          'X-Ds-Pow-Response': challenge
         },
         // 120秒超时
         timeout: 120000,
@@ -488,7 +490,7 @@ async function createCompletionStream(
         chat_session_id: sessionId,
         parent_message_id: refParentMsgId || null,
         prompt,
-        challenge_response: challenge,
+        challenge_response: null,
         ref_file_ids: [],
         search_enabled: isSearchModel,
         thinking_enabled: isThinkingModel
