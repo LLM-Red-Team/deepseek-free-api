@@ -11,12 +11,14 @@ export default {
                     {
                         "id": "deepseek-chat",
                         "object": "model",
-                        "owned_by": "deepseek-free-api"
+                        "owned_by": "deepseek-free-api",
+                        "context_length": 128000,
                     },
                     {
                         "id": "deepseek-coder",
                         "object": "model",
-                        "owned_by": "deepseek-free-api"
+                        "owned_by": "deepseek-free-api",
+                        "context_length": 128000,
                     }
                 ]
             };
