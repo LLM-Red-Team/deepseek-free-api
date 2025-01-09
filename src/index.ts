@@ -2,7 +2,7 @@
 
 import environment from "@/lib/environment.ts";
 import config from "@/lib/config.ts";
-import "@/lib/initialize.ts";
+import { initializeService } from "@/lib/initialize.ts";
 import server from "@/lib/server.ts";
 import routes from "@/api/routes/index.ts";
 import logger from "@/lib/logger.ts";
@@ -18,6 +18,9 @@ const startupTime = performance.now();
   logger.info("Environment:", environment.env);
   logger.info("Service name:", config.service.name);
 
+  // Wait for service initialization
+  await initializeService();
+
   server.attachRoutes(routes);
   await server.listen();
 
@@ -29,4 +32,7 @@ const startupTime = performance.now();
       `Service startup completed (${Math.floor(performance.now() - startupTime)}ms)`
     )
   )
-  .catch((err) => console.error(err));
+  .catch((err) => {
+    logger.error('Fatal error during startup:', err);
+    process.exit(1);
+  });
