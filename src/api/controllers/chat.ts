@@ -1,8 +1,6 @@
 import { PassThrough } from "stream";
 import _ from "lodash";
 import axios, { AxiosResponse } from "axios";
-import { Worker } from 'worker_threads';
-import path from 'path';
 
 import APIException from "@/lib/exceptions/APIException.ts";
 import EX from "@/api/consts/exceptions.ts";
@@ -14,7 +12,7 @@ import util from "@/lib/util.ts";
 // 模型名称
 const MODEL_NAME = "deepseek-chat";
 // 插冷鸡WASM文件路径
-const WASM_PATH = './35144cac553a7a2a.wasm';
+const WASM_PATH = './sha3_wasm_bg.7b9ca65ddd.wasm';
 // access_token有效期
 const ACCESS_TOKEN_EXPIRES = 3600;
 // 最大重试次数
@@ -39,7 +37,7 @@ const FAKE_HEADERS = {
   "Sec-Fetch-Site": "same-origin",
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-  "X-App-Version": "20241018.0"
+  "X-App-Version": "20241129.1"
 };
 const EVENT_COMMIT_ID = '41e9c7b1';
 // 当前IP地址
@@ -48,27 +46,6 @@ let ipAddress = '';
 const accessTokenMap = new Map();
 // access_token请求队列映射
 const accessTokenRequestQueueMap: Record<string, Function[]> = {};
-
-// 添加 worker 池
-const workerPool: (Worker & { inUse?: boolean })[] = [];
-const MAX_WORKERS = 4; // 可以根据需要调整
-
-function getWorker() {
-  // 从池中获取空闲worker或创建新worker
-  let worker = workerPool.find(w => !w.inUse);
-  if (!worker && workerPool.length < MAX_WORKERS) {
-    worker = new Worker(path.join(path.resolve(), 'challenge-worker.js'));
-    workerPool.push(worker);
-  }
-  if (worker) {
-    worker.inUse = true;
-  }
-  return worker;
-}
-
-function releaseWorker(worker: (Worker & { inUse?: boolean })) {
-  worker.inUse = false;
-}
 
 async function getIPAddress() {
   if (ipAddress) return ipAddress;
@@ -202,18 +179,19 @@ async function createSession(model: string, refreshToken: string): Promise<strin
  * 相当于把计算量放在浏览器侧的话，用户分摊了这个计算量
  * 但是如果逆向在服务器上算，那这个成本都在服务器集中，并发一高就GG
  */
-async function answerChallenge(response: any): Promise<any> {
+async function answerChallenge(response: any, targetPath: string): Promise<any> {
   const { algorithm, challenge, salt, difficulty, expire_at, signature } = response;
   const deepSeekHash = new DeepSeekHash();
   await deepSeekHash.init(WASM_PATH);
   const answer = deepSeekHash.calculateHash(algorithm, challenge, salt, difficulty, expire_at);
-  return {
+  return Buffer.from(JSON.stringify({
     algorithm,
     challenge,
     salt,
     answer,
-    signature
-  }
+    signature,
+    target_path: targetPath
+  })).toString('base64');
 }
 
 /**
@@ -221,9 +199,11 @@ async function answerChallenge(response: any): Promise<any> {
  *
  * @param refreshToken 用于刷新access_token的refresh_token
  */
-async function getChallengeResponse(refreshToken: string) {
+async function getChallengeResponse(refreshToken: string, targetPath: string) {
   const token = await acquireToken(refreshToken);
-  const result = await axios.get('https://chat.deepseek.com/api/v0/chat/challenge', {
+  const result = await axios.post('https://chat.deepseek.com/api/v0/chat/create_pow_challenge', {
+    target_path: targetPath
+  }, {
     headers: {
       Authorization: `Bearer ${token}`,
       ...FAKE_HEADERS,
@@ -283,19 +263,15 @@ async function createCompletion(
       }
     }
 
-    let challenge;
-    if (isSearchModel || isThinkingModel) {
-      const challengeResponse = await getChallengeResponse(refreshToken);
-      challenge = await answerChallenge(challengeResponse);
-      logger.info(`插冷鸡: ${JSON.stringify(challenge)}`);
-    }
+    const challengeResponse = await getChallengeResponse(refreshToken, '/api/v0/chat/completion');
+    const challenge = await answerChallenge(challengeResponse, '/api/v0/chat/completion');
+    logger.info(`插冷鸡: ${challenge}`);
 
     const result = await axios.post(
       "https://chat.deepseek.com/api/v0/chat/completion",
       {
         chat_session_id: sessionId,
         parent_message_id: refParentMsgId || null,
-        challenge_response: challenge,
         prompt,
         ref_file_ids: [],
         search_enabled: isSearchModel,
@@ -305,7 +281,8 @@ async function createCompletion(
         headers: {
           Authorization: `Bearer ${token}`,
           ...FAKE_HEADERS,
-          Cookie: generateCookie()
+          Cookie: generateCookie(),
+          'X-Ds-Pow-Response': challenge
         },
         // 120秒超时
         timeout: 120000,
@@ -394,12 +371,9 @@ async function createCompletionStream(
       }
     }
 
-    let challenge;
-    if (isSearchModel || isThinkingModel) {
-      const challengeResponse = await getChallengeResponse(refreshToken);
-      challenge = await answerChallenge(challengeResponse);
-      logger.info(`插冷鸡: ${JSON.stringify(challenge)}`);
-    }
+    const challengeResponse = await getChallengeResponse(refreshToken, '/api/v0/chat/completion');
+    const challenge = await answerChallenge(challengeResponse, '/api/v0/chat/completion');
+    logger.info(`插冷鸡: ${challenge}`);
 
     // 创建会话
     const sessionId = refSessionId || await createSession(model, refreshToken);
@@ -412,7 +386,6 @@ async function createCompletionStream(
         chat_session_id: sessionId,
         parent_message_id: refParentMsgId || null,
         prompt,
-        challenge_response: challenge,
         ref_file_ids: [],
         search_enabled: isSearchModel,
         thinking_enabled: isThinkingModel
@@ -421,7 +394,8 @@ async function createCompletionStream(
         headers: {
           Authorization: `Bearer ${token}`,
           ...FAKE_HEADERS,
-          Cookie: generateCookie()
+          Cookie: generateCookie(),
+          'X-Ds-Pow-Response': challenge
         },
         // 120秒超时
         timeout: 120000,
@@ -1252,11 +1226,6 @@ getIPAddress().then(() => {
   autoUpdateAppVersion();
 }).catch((err) => {
   logger.error('获取 IP 地址失败:', err);
-});
-
-// 在程序退出时清理workers
-process.on('exit', () => {
-  workerPool.forEach(worker => worker.terminate());
 });
 
 export default {
