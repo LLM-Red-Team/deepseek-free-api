@@ -177,7 +177,7 @@ async function requestToken(refreshToken: string) {
       {
         headers: {
           Authorization: `Bearer ${refreshToken}`,
-          ...cloudflareAuth.getCookieString,
+          ...cloudflareAuth.getHeaders(),
           Cookie: cloudflareAuth.getCookieString()
         },
         timeout: 15000,
@@ -301,7 +301,7 @@ async function getChallengeResponse(refreshToken: string, targetPath: string) {
   }, {
     headers: {
       Authorization: `Bearer ${token}`,
-      ...cloudflareAuth.getCookieString,
+      ...cloudflareAuth.getHeaders(),
       Cookie: cloudflareAuth.getCookieString()
     },
     timeout: 15000,
@@ -375,7 +375,7 @@ async function createCompletion(
       {
         headers: {
           Authorization: `Bearer ${token}`,
-          ...cloudflareAuth.getCookieString,
+          ...cloudflareAuth.getHeaders(),
           Cookie: cloudflareAuth.getCookieString()
         },
         // 120秒超时
@@ -868,7 +868,7 @@ async function getTokenLiveStatus(refreshToken: string) {
     {
       headers: {
         Authorization: `Bearer ${token}`,
-        ...cloudflareAuth.getCookieString,
+        ...cloudflareAuth.getHeaders(),
         Cookie: cloudflareAuth.getCookieString()
       },
       timeout: 15000,
@@ -1245,7 +1245,7 @@ async function sendEvents(refConvId: string, refreshToken: string) {
     }, {
       headers: {
         Authorization: `Bearer ${token}`,
-        ...cloudflareAuth.getCookieString,
+        ...cloudflareAuth.getHeaders(),
         Referer: `https://chat.deepseek.com/a/chat/s/${refConvId}`,
         Cookie: cloudflareAuth.getCookieString()
       },
@@ -1267,7 +1267,7 @@ async function getThinkingQuota(refreshToken: string) {
     const response = await axios.get('https://chat.deepseek.com/api/v0/users/feature_quota', {
       headers: {
         Authorization: `Bearer ${refreshToken}`,
-        ...cloudflareAuth.getCookieString,
+        ...cloudflareAuth.getHeaders(),
         Cookie: cloudflareAuth.getCookieString()
       },
       timeout: 15000,
@@ -1296,7 +1296,7 @@ async function fetchAppVersion(): Promise<string> {
       timeout: 5000,
       validateStatus: () => true,
       headers: {
-        ...cloudflareAuth.getCookieString,
+        ...cloudflareAuth.getHeaders(),
         Cookie: cloudflareAuth.getCookieString()
       }
     });
