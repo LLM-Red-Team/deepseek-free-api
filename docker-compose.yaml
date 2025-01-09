@@ -1,0 +1,12 @@
+services:
+  deepseek-free-api:
+    container_name: deepseek-free-api
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    # image: vinlic/deepseek-free-api:latest
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - TZ=Asia/Shanghai
