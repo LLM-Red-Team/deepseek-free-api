@@ -99,10 +99,10 @@ MiniMax（海螺AI）接口转API [hailuo-free-api](https://github.com/LLM-Red-T
 
 请准备一台具有公网IP的服务器并将8000端口开放。
 
-拉取镜像并启动服务
+拉取镜像并启动服务，DEEP_SEEK_CHAT_AUTHORIZATION 环境变量未chatweb网页版本的token。
 
 ```shell
-docker run -it -d --init --name deepseek-free-api -p 8000:8000 -e TZ=Asia/Shanghai vinlic/deepseek-free-api:latest
+docker run -it -d --init --name deepseek-free-api -p 8000:8000 -e TZ=Asia/Shanghai -e DEEP_SEEK_CHAT_AUTHORIZATION=xxx vinlic/deepseek-free-api:latest
 ```
 
 查看服务实时日志

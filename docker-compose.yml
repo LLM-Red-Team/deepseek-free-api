@@ -1,0 +1,12 @@
+version: '3'
+
+services:
+  deepseek-free-api:
+    container_name: deepseek-free-api
+    image: vinlic/deepseek-free-api:latest
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - TZ=Asia/Shanghai
+      - DEEP_SEEK_CHAT_AUTHORIZATION=UFV8fRYleCSOxOahFJxqZXOGhMSXVqIK1n7SeD4chb+XYMMKEOJtOmDKffP2W6Km

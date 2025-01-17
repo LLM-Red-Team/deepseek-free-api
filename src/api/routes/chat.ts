@@ -4,6 +4,10 @@ import Request from '@/lib/request/Request.ts';
 import Response from '@/lib/response/Response.ts';
 import chat from '@/api/controllers/chat.ts';
 
+
+const DEEP_SEEK_CHAT_AUTHORIZATION = process.env.DEEP_SEEK_CHAT_AUTHORIZATION;
+
+
 export default {
 
     prefix: '/v1/chat',
@@ -15,6 +19,11 @@ export default {
                 .validate('body.conversation_id', v => _.isUndefined(v) || _.isString(v))
                 .validate('body.messages', _.isArray)
                 .validate('headers.authorization', _.isString)
+
+            // 如果请求中没有token则读取环境变量的配置
+            if (!request.headers.authorization) {
+                request.headers.authorization = DEEP_SEEK_CHAT_AUTHORIZATION;
+            }
             // token切分
             const tokens = chat.tokenSplit(request.headers.authorization);
             // 随机挑选一个token
