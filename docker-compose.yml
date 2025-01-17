@@ -9,4 +9,4 @@ services:
       - "8000:8000"
     environment:
       - TZ=Asia/Shanghai
-      - DEEP_SEEK_CHAT_AUTHORIZATION=UFV8fRYleCSOxOahFJxqZXOGhMSXVqIK1n7SeD4chb+XYMMKEOJtOmDKffP2W6Km
+      - DEEP_SEEK_CHAT_AUTHORIZATION=UFV8fRxxxxfP2W6Km
