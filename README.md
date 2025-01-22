@@ -95,6 +95,13 @@ MiniMax（海螺AI）接口转API [hailuo-free-api](https://github.com/LLM-Red-T
 
 每次请求服务会从中挑选一个。
 
+### 环境变量
+
+| 环境变量 | 是否必填 | 说明                               |
+|------|------|----------------------------------|
+|  DEEP_SEEK_CHAT_AUTHORIZATION   | 否    | 当配置了token 则使用token，未配置则需要在请求头中传递Authorization |
+
+
 ## Docker部署
 
 请准备一台具有公网IP的服务器并将8000端口开放。
