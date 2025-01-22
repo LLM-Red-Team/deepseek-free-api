@@ -569,14 +569,14 @@ async function receiveStream(model: string, stream: any, refConvId?: string): Pr
         if (result.choices[0].delta.type === "thinking") {
           if (!thinking && isThinkingModel && !isSilentModel) {
             thinking = true;
-            data.choices[0].message.content += isFoldModel ? "<details><summary>思考过程</summary><pre>" : "[思考开始]";
+            data.choices[0].message.content += isFoldModel ? "<details><summary>思考过程</summary><pre>" : "[思考开始]\n";
           }
           if (isSilentModel)
             return;
         }
         else if (thinking && isThinkingModel && !isSilentModel) {
           thinking = false;
-          data.choices[0].message.content += isFoldModel ? "</pre></details>" : "[思考结束]";
+          data.choices[0].message.content += isFoldModel ? "</pre></details>" : "\n\n[思考结束]\n";
         }
         if (result.choices[0].delta.content)
           data.choices[0].message.content += result.choices[0].delta.content;
@@ -671,7 +671,7 @@ function createTransStream(model: string, stream: any, refConvId: string, endCal
             choices: [
               {
                 index: 0,
-                delta: { role: "assistant", content: isFoldModel ? "<details><summary>思考过程</summary><pre>" : "[思考开始]" },
+                delta: { role: "assistant", content: isFoldModel ? "<details><summary>思考过程</summary><pre>" : "[思考开始]\n" },
                 finish_reason: null,
               },
             ],
@@ -690,7 +690,7 @@ function createTransStream(model: string, stream: any, refConvId: string, endCal
           choices: [
             {
               index: 0,
-              delta: { role: "assistant", content: isFoldModel ? "</pre></details>" : "[思考结束]" },
+              delta: { role: "assistant", content: isFoldModel ? "</pre></details>" : "\n\n[思考结束]\n" },
               finish_reason: null,
             },
           ],
