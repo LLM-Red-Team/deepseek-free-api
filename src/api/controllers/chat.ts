@@ -1,6 +1,9 @@
 import { PassThrough } from "stream";
 import _ from "lodash";
 import axios, { AxiosResponse } from "axios";
+import { Worker } from 'worker_threads';
+import path from 'path';
+import setCookie from 'set-cookie-parser';
 
 import APIException from "@/lib/exceptions/APIException.ts";
 import EX from "@/api/consts/exceptions.ts";
@@ -8,6 +11,7 @@ import { createParser } from "eventsource-parser";
 import { DeepSeekHash } from "@/lib/challenge.ts";
 import logger from "@/lib/logger.ts";
 import util from "@/lib/util.ts";
+import { CloudflareAuth } from '@/lib/cloudflare-auth.ts';
 
 // 模型名称
 const MODEL_NAME = "deepseek-chat";
@@ -47,21 +51,110 @@ const accessTokenMap = new Map();
 // access_token请求队列映射
 const accessTokenRequestQueueMap: Record<string, Function[]> = {};
 
+// 添加 worker 池
+const workerPool: (Worker & { inUse?: boolean })[] = [];
+const MAX_WORKERS = 4; // 可以根据需要调整
+
+const cloudflareAuth = new CloudflareAuth();
+
+// Ajouter l'intercepteur pour toutes les réponses
+axios.interceptors.response.use(
+  (response) => {
+    // Mise à jour des cookies sur réponse réussie
+    if (response.headers['set-cookie']) {
+      const newCookies = setCookie.parse(response.headers['set-cookie']);
+      newCookies.forEach(cookie => {
+        if (cookie.name === '__cf_bm') {
+          cloudflareAuth.updateCookie(cookie.name, cookie.value);
+          logger.debug('Updated Cloudflare cookie from response');
+        }
+      });
+    }
+    return response;
+  },
+  (error) => {
+    // Mise à jour des cookies même en cas d'erreur
+    if (error.response?.headers['set-cookie']) {
+      const newCookies = setCookie.parse(error.response.headers['set-cookie']);
+      newCookies.forEach(cookie => {
+        if (cookie.name === '__cf_bm') {
+          cloudflareAuth.updateCookie(cookie.name, cookie.value);
+          logger.debug('Updated Cloudflare cookie from error response');
+        }
+      });
+    }
+    return Promise.reject(error);
+  }
+);
+
+async function initCloudflareAuth() {
+  try {
+    await cloudflareAuth.init();
+  } catch (error) {
+    logger.error('Failed to initialize Cloudflare auth:', error);
+    throw error; // Propager l'erreur au lieu de la capturer
+  }
+}
+
+function getWorker() {
+  // 从池中获取空闲worker或创建新worker
+  let worker = workerPool.find(w => !w.inUse);
+  if (!worker && workerPool.length < MAX_WORKERS) {
+    worker = new Worker(path.join(path.resolve(), 'challenge-worker.js'));
+    workerPool.push(worker);
+  }
+  if (worker) {
+    worker.inUse = true;
+  }
+  return worker;
+}
+
+function releaseWorker(worker: (Worker & { inUse?: boolean })) {
+  worker.inUse = false;
+}
+
 async function getIPAddress() {
   if (ipAddress) return ipAddress;
-  const result = await axios.get('https://chat.deepseek.com/', {
-    headers: {
-      ...FAKE_HEADERS,
-      Cookie: generateCookie()
-    },
-    timeout: 15000,
-    validateStatus: () => true,
-  });
-  const ip = result.data.match(/<meta name="ip" content="([\d.]+)">/)?.[1];
-  if (!ip) throw new APIException(EX.API_REQUEST_FAILED, '获取IP地址失败');
-  logger.info(`当前IP地址: ${ip}`);
-  ipAddress = ip;
-  return ip;
+  
+  // List of IP lookup services
+  const ipServices = [
+    'https://api.ipify.org?format=json',
+    'https://api.ip.sb/ip',
+    'https://api.myip.com',
+    'https://ifconfig.me/ip'
+  ];
+
+  for (const service of ipServices) {
+    try {
+      const response = await axios.get(service, {
+        timeout: 5000,
+        headers: {
+          'User-Agent': cloudflareAuth.getCookieString['User-Agent']
+        }
+      });
+
+      let ip;
+      if (typeof response.data === 'object') {
+        // Handle JSON responses (like ipify)
+        ip = response.data.ip;
+      } else {
+        // Handle plain text responses (like ifconfig.me)
+        ip = response.data.trim();
+      }
+
+      if (ip && /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(ip)) {
+        logger.info(`Successfully got IP address from ${service}: ${ip}`);
+        ipAddress = ip;
+        return ip;
+      }
+    } catch (err) {
+      logger.error(`Failed to get IP from ${service}:`, err.message);
+      continue;
+    }
+  }
+
+  // If all services fail, throw an error
+  throw new APIException(EX.API_REQUEST_FAILED, 'Failed to get IP address from all services');
 }
 
 /**
@@ -84,7 +177,8 @@ async function requestToken(refreshToken: string) {
       {
         headers: {
           Authorization: `Bearer ${refreshToken}`,
-          ...FAKE_HEADERS,
+          ...cloudflareAuth.getHeaders(),
+          Cookie: cloudflareAuth.getCookieString()
         },
         timeout: 15000,
         validateStatus: () => true,
@@ -143,12 +237,12 @@ async function acquireToken(refreshToken: string): Promise<string> {
 /**
  * 生成cookie
  */
-function generateCookie() {
-  return `intercom-HWWAFSESTIME=${util.timestamp()}; HWWAFSESID=${util.generateRandomString({
-    charset: 'hex',
-    length: 18
-  })}; Hm_lvt_${util.uuid(false)}=${util.unixTimestamp()},${util.unixTimestamp()},${util.unixTimestamp()}; Hm_lpvt_${util.uuid(false)}=${util.unixTimestamp()}; _frid=${util.uuid(false)}; _fr_ssid=${util.uuid(false)}; _fr_pvid=${util.uuid(false)}`
-}
+// function cloudflareAuth.getCookieString() {
+//   return `HWWAFSESTIME=${util.timestamp()}; HWWAFSESID=${util.generateRandomString({
+//     charset: 'hex',
+//     length: 18
+//   })}; Hm_lvt_${util.uuid(false)}=${util.unixTimestamp()},${util.unixTimestamp()},${util.unixTimestamp()}; Hm_lpvt_${util.uuid(false)}=${util.unixTimestamp()}; _frid=${util.uuid(false)}; _fr_ssid=${util.uuid(false)}; _fr_pvid=${util.uuid(false)}`
+// }
 
 async function createSession(model: string, refreshToken: string): Promise<string> {
   const token = await acquireToken(refreshToken);
@@ -160,7 +254,8 @@ async function createSession(model: string, refreshToken: string): Promise<strin
     {
       headers: {
         Authorization: `Bearer ${token}`,
-        ...FAKE_HEADERS,
+        ...cloudflareAuth.getHeaders(),
+        Cookie: cloudflareAuth.getCookieString()
       },
       timeout: 15000,
       validateStatus: () => true,
@@ -206,8 +301,8 @@ async function getChallengeResponse(refreshToken: string, targetPath: string) {
   }, {
     headers: {
       Authorization: `Bearer ${token}`,
-      ...FAKE_HEADERS,
-      Cookie: generateCookie()
+      ...cloudflareAuth.getHeaders(),
+      Cookie: cloudflareAuth.getCookieString()
     },
     timeout: 15000,
     validateStatus: () => true,
@@ -250,8 +345,8 @@ async function createCompletion(
     // 请求流
     const token = await acquireToken(refreshToken);
 
-    const isSearchModel = model.includes('search') || prompt.includes('联网搜索');
-    const isThinkingModel = model.includes('think') || model.includes('r1') || prompt.includes('深度思考');
+    const isSearchModel = model.includes('search') || prompt.includes('web search');
+    const isThinkingModel = model.includes('think') || model.includes('r1') || prompt.includes('deep thinking');
 
     if(isSearchModel && isThinkingModel)
       throw new APIException(EX.API_REQUEST_FAILED, '深度思考和联网搜索不能同时使用');
@@ -272,6 +367,7 @@ async function createCompletion(
       {
         chat_session_id: sessionId,
         parent_message_id: refParentMsgId || null,
+        challenge_response: null,
         prompt,
         ref_file_ids: [],
         search_enabled: isSearchModel,
@@ -280,8 +376,8 @@ async function createCompletion(
       {
         headers: {
           Authorization: `Bearer ${token}`,
-          ...FAKE_HEADERS,
-          Cookie: generateCookie(),
+          ...cloudflareAuth.getHeaders(),
+          Cookie: cloudflareAuth.getCookieString(),
           'X-Ds-Pow-Response': challenge
         },
         // 120秒超时
@@ -330,13 +426,13 @@ async function createCompletion(
 }
 
 /**
- * 流式对话补全
+ * Stream chat completion
  *
- * @param model 模型名称
- * @param messages 参考gpt系列消息格式，多轮对话请完整提供上下文
- * @param refreshToken 用于刷新access_token的refresh_token
- * @param refConvId 引用对话ID
- * @param retryCount 重试次数
+ * @param model Model name
+ * @param messages Follow GPT series message format, provide full context for multi-turn dialogue
+ * @param refreshToken refresh_token used to refresh access_token
+ * @param refConvId Reference conversation ID
+ * @param retryCount Retry count
  */
 async function createCompletionStream(
   model = MODEL_NAME,
@@ -346,6 +442,7 @@ async function createCompletionStream(
   retryCount = 0
 ) {
   return (async () => {
+    logger.info("creating completion Stream")
     logger.info(messages);
 
     // 如果引用对话ID不正确则重置引用
@@ -358,8 +455,8 @@ async function createCompletionStream(
     // 解析引用对话ID
     const [refSessionId, refParentMsgId] = refConvId?.split('@') || [];
 
-    const isSearchModel = model.includes('search') || prompt.includes('联网搜索');
-    const isThinkingModel = model.includes('think') || model.includes('r1') || prompt.includes('深度思考');
+    const isSearchModel = model.includes('search') || prompt.includes('web search');
+    const isThinkingModel = model.includes('think') || model.includes('r1') || prompt.includes('deep thinking');
 
     if(isSearchModel && isThinkingModel)
       throw new APIException(EX.API_REQUEST_FAILED, '深度思考和联网搜索不能同时使用');
@@ -380,31 +477,33 @@ async function createCompletionStream(
     // 请求流
     const token = await acquireToken(refreshToken);
 
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      ...cloudflareAuth.getHeaders(),
+      Cookie: cloudflareAuth.getCookieString(),
+      'X-Ds-Pow-Response': challenge
+    };
+
     const result = await axios.post(
       "https://chat.deepseek.com/api/v0/chat/completion",
       {
         chat_session_id: sessionId,
         parent_message_id: refParentMsgId || null,
         prompt,
+        challenge_response: null,
         ref_file_ids: [],
         search_enabled: isSearchModel,
         thinking_enabled: isThinkingModel
       },
       {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          ...FAKE_HEADERS,
-          Cookie: generateCookie(),
-          'X-Ds-Pow-Response': challenge
-        },
-        // 120秒超时
+        headers,
         timeout: 120000,
         validateStatus: () => true,
         responseType: "stream",
       }
     );
 
-    // 发送事件，缓解被封号风险
+    // Send events to mitigate the risk of account suspension
     await sendEvents(sessionId, refreshToken);
 
     if (result.headers["content-type"].indexOf("text/event-stream") == -1) {
@@ -424,7 +523,7 @@ async function createCompletionStream(
               index: 0,
               delta: {
                 role: "assistant",
-                content: "服务暂时不可用，第三方响应错误",
+                content: "Service temporarily unavailable, third-party response error",
               },
               finish_reason: "stop",
             },
@@ -462,11 +561,11 @@ async function createCompletionStream(
 }
 
 /**
- * 消息预处理
+ * Message preparation
  *
- * 由于接口只取第一条消息，此处会将多条消息合并为一条，实现多轮对话效果
+ * Since the API only takes the first message, this will merge multiple messages into one to achieve multi-turn dialogue effect
  *
- * @param messages 参考gpt系列消息格式，多轮对话请完整提供上下文
+ * @param messages Follow GPT series message format, provide full context for multi-turn dialogue
  */
 function messagesPrepare(messages: any[]) {
   let content;
@@ -482,7 +581,7 @@ function messagesPrepare(messages: any[]) {
       }
       return content + `${message.content}\n`;
     }, "");
-    logger.info("\n透传内容：\n" + content);
+    logger.info("\nPassthrough content:\n" + content);
   }
   else {
     content = (
@@ -500,16 +599,16 @@ function messagesPrepare(messages: any[]) {
     )
       // 移除MD图像URL避免幻觉
       .replace(/\!\[.+\]\(.+\)/g, "");
-    logger.info("\n对话合并：\n" + content);
+    logger.info("\nMerged conversation:\n" + content);
   }
   return content;
 }
 
 /**
- * 检查请求结果
+ * Check request result
  *
- * @param result 结果
- * @param refreshToken 用于刷新access_token的refresh_token
+ * @param result Result
+ * @param refreshToken refresh_token used to refresh access_token
  */
 function checkResult(result: AxiosResponse, refreshToken: string) {
   if (!result.data) return null;
@@ -517,14 +616,14 @@ function checkResult(result: AxiosResponse, refreshToken: string) {
   if (!_.isFinite(code)) return result.data;
   if (code === 0) return data;
   if (code == 40003) accessTokenMap.delete(refreshToken);
-  throw new APIException(EX.API_REQUEST_FAILED, `[请求deepseek失败]: ${msg}`);
+  throw new APIException(EX.API_REQUEST_FAILED, `[Deepseek request failed]: ${msg}`);
 }
 
 /**
- * 从流接收完整的消息内容
+ * Receive complete message content from stream
  *
- * @param model 模型名称
- * @param stream 消息流
+ * @param model Model name
+ * @param stream Message stream
  */
 async function receiveStream(model: string, stream: any, refConvId?: string): Promise<any> {
   let thinking = false;
@@ -532,7 +631,7 @@ async function receiveStream(model: string, stream: any, refConvId?: string): Pr
   const isThinkingModel = model.includes('think') || model.includes('r1');
   const isSilentModel = model.includes('silent');
   const isFoldModel = model.includes('fold');
-  logger.info(`模型: ${model}, 是否思考: ${isThinkingModel} 是否联网搜索: ${isSearchModel}, 是否静默思考: ${isSilentModel}, 是否折叠思考: ${isFoldModel}`);
+  logger.info(`Model: ${model}, Thinking enabled: ${isThinkingModel}, Search enabled: ${isSearchModel}, Silent thinking: ${isSilentModel}, Fold thinking: ${isFoldModel}`);
   let refContent = '';
   return new Promise((resolve, reject) => {
     // 消息初始化
@@ -563,20 +662,20 @@ async function receiveStream(model: string, stream: any, refConvId?: string): Pr
           data.id = `${refConvId}@${result.message_id}`;
         if (result.choices[0].delta.type === "search_result" && !isSilentModel) {
           const searchResults = result.choices[0]?.delta?.search_results || [];
-          refContent += searchResults.map(item => `${item.title} - ${item.url}`).join('\n');
+          refContent += searchResults.map(item => `Search result ${item.title} - ${item.url}`).join('\n') + '\n\n';
           return;
         }
         if (result.choices[0].delta.type === "thinking") {
           if (!thinking && isThinkingModel && !isSilentModel) {
             thinking = true;
-            data.choices[0].message.content += isFoldModel ? "<details><summary>思考过程</summary><pre>" : "[思考开始]\n";
+            data.choices[0].message.content += isFoldModel ? "<details><summary>Thinking process</summary><pre>" : "[Thinking started]\n";
           }
           if (isSilentModel)
             return;
         }
         else if (thinking && isThinkingModel && !isSilentModel) {
           thinking = false;
-          data.choices[0].message.content += isFoldModel ? "</pre></details>" : "\n\n[思考结束]\n";
+          data.choices[0].message.content += isFoldModel ? "</pre></details>" : "\n\n[Thinking ended]\n";
         }
         if (result.choices[0].delta.content)
           data.choices[0].message.content += result.choices[0].delta.content;
@@ -611,7 +710,7 @@ function createTransStream(model: string, stream: any, refConvId: string, endCal
   const isThinkingModel = model.includes('think') || model.includes('r1');
   const isSilentModel = model.includes('silent');
   const isFoldModel = model.includes('fold');
-  logger.info(`模型: ${model}, 是否思考: ${isThinkingModel}, 是否联网搜索: ${isSearchModel}, 是否静默思考: ${isSilentModel}, 是否折叠思考: ${isFoldModel}`);
+  logger.info(`Model: ${model}, Thinking enabled: ${isThinkingModel}, Search enabled: ${isSearchModel}, Silent thinking: ${isSilentModel}, Fold thinking: ${isFoldModel}`);
   // 消息创建时间
   const created = util.unixTimestamp();
   // 创建转换流
@@ -645,7 +744,7 @@ function createTransStream(model: string, stream: any, refConvId: string, endCal
       if (result.choices[0].delta.type === "search_result" && !isSilentModel) {
         const searchResults = result.choices[0]?.delta?.search_results || [];
         if (searchResults.length > 0) {
-          const refContent = searchResults.map(item => `检索 ${item.title} - ${item.url}`).join('\n') + '\n\n';
+          const refContent = searchResults.map(item => `Search result ${item.title} - ${item.url}`).join('\n') + '\n\n';
           transStream.write(`data: ${JSON.stringify({
             id: `${refConvId}@${result.message_id}`,
             model: result.model,
@@ -671,7 +770,7 @@ function createTransStream(model: string, stream: any, refConvId: string, endCal
             choices: [
               {
                 index: 0,
-                delta: { role: "assistant", content: isFoldModel ? "<details><summary>思考过程</summary><pre>" : "[思考开始]\n" },
+                delta: { role: "assistant", content: isFoldModel ? "<details><summary>Thinking process</summary><pre>" : "[Thinking started]\n" },
                 finish_reason: null,
               },
             ],
@@ -690,7 +789,7 @@ function createTransStream(model: string, stream: any, refConvId: string, endCal
           choices: [
             {
               index: 0,
-              delta: { role: "assistant", content: isFoldModel ? "</pre></details>" : "\n\n[思考结束]\n" },
+              delta: { role: "assistant", content: isFoldModel ? "</pre></details>" : "\n\n[Thinking ended]\n" },
               finish_reason: null,
             },
           ],
@@ -771,8 +870,8 @@ async function getTokenLiveStatus(refreshToken: string) {
     {
       headers: {
         Authorization: `Bearer ${token}`,
-        ...FAKE_HEADERS,
-        Cookie: generateCookie()
+        ...cloudflareAuth.getHeaders(),
+        Cookie: cloudflareAuth.getCookieString()
       },
       timeout: 15000,
       validateStatus: () => true,
@@ -802,7 +901,7 @@ async function sendEvents(refConvId: string, refreshToken: string) {
           "session_id": sessionId,
           "client_timestamp_ms": timestamp,
           "event_name": "__reportEvent",
-          "event_message": "调用上报事件接口",
+          "event_message": "Calling event reporting interface",
           "payload": {
             "__location": "https://chat.deepseek.com/",
             "__ip": ipAddress,
@@ -810,9 +909,9 @@ async function sendEvents(refConvId: string, refreshToken: string) {
             "__pageVisibility": "true",
             "__nodeEnv": "production",
             "__deployEnv": "production",
-            "__appVersion": FAKE_HEADERS["X-App-Version"],
+            "__appVersion": cloudflareAuth.getCookieString["X-App-Version"],
             "__commitId": EVENT_COMMIT_ID,
-            "__userAgent": FAKE_HEADERS["User-Agent"],
+            "__userAgent": cloudflareAuth.getCookieString["User-Agent"],
             "__referrer": "",
             "method": "post",
             "url": "/api/v0/events",
@@ -824,7 +923,7 @@ async function sendEvents(refConvId: string, refreshToken: string) {
           "session_id": sessionId,
           "client_timestamp_ms": timestamp + 100 + Math.floor(Math.random() * 1000),
           "event_name": "__reportEventOk",
-          "event_message": "调用上报事件接口成功",
+          "event_message": "Successfully called event reporting interface",
           "payload": {
             "__location": "https://chat.deepseek.com/",
             "__ip": ipAddress,
@@ -832,9 +931,9 @@ async function sendEvents(refConvId: string, refreshToken: string) {
             "__pageVisibility": "true",
             "__nodeEnv": "production",
             "__deployEnv": "production",
-            "__appVersion": FAKE_HEADERS["X-App-Version"],
+            "__appVersion": cloudflareAuth.getCookieString["X-App-Version"],
             "__commitId": EVENT_COMMIT_ID,
-            "__userAgent": FAKE_HEADERS["User-Agent"],
+            "__userAgent": cloudflareAuth.getCookieString["User-Agent"],
             "__referrer": "",
             "method": "post",
             "url": "/api/v0/events",
@@ -849,7 +948,7 @@ async function sendEvents(refConvId: string, refreshToken: string) {
           "session_id": sessionId,
           "client_timestamp_ms": timestamp + 200 + Math.floor(Math.random() * 1000),
           "event_name": "createSessionAndStartCompletion",
-          "event_message": "开始创建对话",
+          "event_message": "Start creating conversation",
           "payload": {
             "__location": "https://chat.deepseek.com/",
             "__ip": ipAddress,
@@ -857,7 +956,7 @@ async function sendEvents(refConvId: string, refreshToken: string) {
             "__pageVisibility": "true",
             "__nodeEnv": "production",
             "__deployEnv": "production",
-            "__appVersion": FAKE_HEADERS["X-App-Version"],
+            "__appVersion": cloudflareAuth.getCookieString["X-App-Version"],
             "__commitId": EVENT_COMMIT_ID,
             "__userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
             "__referrer": "",
@@ -878,7 +977,7 @@ async function sendEvents(refConvId: string, refreshToken: string) {
             "__pageVisibility": "true",
             "__nodeEnv": "production",
             "__deployEnv": "production",
-            "__appVersion": FAKE_HEADERS["X-App-Version"],
+            "__appVersion": cloudflareAuth.getCookieString["X-App-Version"],
             "__commitId": EVENT_COMMIT_ID,
             "__userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
             "__referrer": "",
@@ -900,9 +999,9 @@ async function sendEvents(refConvId: string, refreshToken: string) {
             "__pageVisibility": "true",
             "__nodeEnv": "production",
             "__deployEnv": "production",
-            "__appVersion": FAKE_HEADERS["X-App-Version"],
+            "__appVersion": cloudflareAuth.getCookieString["X-App-Version"],
             "__commitId": EVENT_COMMIT_ID,
-            "__userAgent": FAKE_HEADERS["User-Agent"],
+            "__userAgent": cloudflareAuth.getCookieString["User-Agent"],
             "__referrer": "",
             "url": "/api/v0/chat_session/create",
             "path": "/api/v0/chat_session/create",
@@ -917,7 +1016,7 @@ async function sendEvents(refConvId: string, refreshToken: string) {
           "session_id": sessionId,
           "client_timestamp_ms": timestamp + 500 + Math.floor(Math.random() * 1000),
           "event_name": "__log",
-          "event_message": "使用 buffer 模式",
+          "event_message": "Using buffer mode",
           "payload": {
             "__location": "https://chat.deepseek.com/",
             "__ip": ipAddress,
@@ -925,9 +1024,9 @@ async function sendEvents(refConvId: string, refreshToken: string) {
             "__pageVisibility": "true",
             "__nodeEnv": "production",
             "__deployEnv": "production",
-            "__appVersion": FAKE_HEADERS["X-App-Version"],
+            "__appVersion": cloudflareAuth.getCookieString["X-App-Version"],
             "__commitId": EVENT_COMMIT_ID,
-            "__userAgent": FAKE_HEADERS["User-Agent"],
+            "__userAgent": cloudflareAuth.getCookieString["User-Agent"],
             "__referrer": ""
           },
           "level": "info"
@@ -936,7 +1035,7 @@ async function sendEvents(refConvId: string, refreshToken: string) {
           "session_id": sessionId,
           "client_timestamp_ms": timestamp + 600 + Math.floor(Math.random() * 1000),
           "event_name": "chatCompletionApi",
-          "event_message": "chatCompletionApi 被调用",
+          "event_message": "chatCompletionApi called",
           "payload": {
             "__location": "https://chat.deepseek.com/",
             "__ip": ipAddress,
@@ -944,9 +1043,9 @@ async function sendEvents(refConvId: string, refreshToken: string) {
             "__pageVisibility": "true",
             "__nodeEnv": "production",
             "__deployEnv": "production",
-            "__appVersion": FAKE_HEADERS["X-App-Version"],
+            "__appVersion": cloudflareAuth.getCookieString["X-App-Version"],
             "__commitId": EVENT_COMMIT_ID,
-            "__userAgent": FAKE_HEADERS["User-Agent"],
+            "__userAgent": cloudflareAuth.getCookieString["User-Agent"],
             "__referrer": "",
             "scene": "completion",
             "chatSessionId": refConvId,
@@ -967,9 +1066,9 @@ async function sendEvents(refConvId: string, refreshToken: string) {
             "__pageVisibility": "true",
             "__nodeEnv": "production",
             "__deployEnv": "production",
-            "__appVersion": FAKE_HEADERS["X-App-Version"],
+            "__appVersion": cloudflareAuth.getCookieString["X-App-Version"],
             "__commitId": EVENT_COMMIT_ID,
-            "__userAgent": FAKE_HEADERS["User-Agent"],
+            "__userAgent": cloudflareAuth.getCookieString["User-Agent"],
             "__referrer": "",
             "url": "/api/v0/chat/completion",
             "path": "/api/v0/chat/completion",
@@ -981,7 +1080,7 @@ async function sendEvents(refConvId: string, refreshToken: string) {
           "session_id": sessionId,
           "client_timestamp_ms": timestamp + 800 + Math.floor(Math.random() * 1000),
           "event_name": "completionFirstChunkReceived",
-          "event_message": "收到第一个 completion chunk（可以是空 chunk）",
+          "event_message": "Received first completion chunk (can be empty)",
           "payload": {
             "__location": "https://chat.deepseek.com/",
             "__ip": ipAddress,
@@ -989,9 +1088,9 @@ async function sendEvents(refConvId: string, refreshToken: string) {
             "__pageVisibility": "true",
             "__nodeEnv": "production",
             "__deployEnv": "production",
-            "__appVersion": FAKE_HEADERS["X-App-Version"],
+            "__appVersion": cloudflareAuth.getCookieString["X-App-Version"],
             "__commitId": EVENT_COMMIT_ID,
-            "__userAgent": FAKE_HEADERS["User-Agent"],
+            "__userAgent": cloudflareAuth.getCookieString["User-Agent"],
             "__referrer": "",
             "metricDuration": Math.floor(Math.random() * 1000),
             "logId": util.uuid()
@@ -1002,7 +1101,7 @@ async function sendEvents(refConvId: string, refreshToken: string) {
           "session_id": sessionId,
           "client_timestamp_ms": timestamp + 900 + Math.floor(Math.random() * 1000),
           "event_name": "createSessionAndStartCompletion",
-          "event_message": "创建会话并开始补全",
+          "event_message": "Create session and start completion",
           "payload": {
             "__location": "https://chat.deepseek.com/",
             "__ip": ipAddress,
@@ -1010,9 +1109,9 @@ async function sendEvents(refConvId: string, refreshToken: string) {
             "__pageVisibility": "true",
             "__nodeEnv": "production",
             "__deployEnv": "production",
-            "__appVersion": FAKE_HEADERS["X-App-Version"],
+            "__appVersion": cloudflareAuth.getCookieString["X-App-Version"],
             "__commitId": EVENT_COMMIT_ID,
-            "__userAgent": FAKE_HEADERS["User-Agent"],
+            "__userAgent": cloudflareAuth.getCookieString["User-Agent"],
             "__referrer": "",
             "agentId": "chat",
             "newSessionId": refConvId,
@@ -1025,7 +1124,7 @@ async function sendEvents(refConvId: string, refreshToken: string) {
           "session_id": sessionId,
           "client_timestamp_ms": timestamp + 1000 + Math.floor(Math.random() * 1000),
           "event_name": "routeChange",
-          "event_message": `路由改变 => /a/chat/s/${refConvId}`,
+          "event_message": `Route changed => /a/chat/s/${refConvId}`,
           "payload": {
             "__location": `https://chat.deepseek.com/a/chat/s/${refConvId}`,
             "__ip": ipAddress,
@@ -1033,9 +1132,9 @@ async function sendEvents(refConvId: string, refreshToken: string) {
             "__pageVisibility": "true",
             "__nodeEnv": "production",
             "__deployEnv": "production",
-            "__appVersion": FAKE_HEADERS["X-App-Version"],
+            "__appVersion": cloudflareAuth.getCookieString["X-App-Version"],
             "__commitId": EVENT_COMMIT_ID,
-            "__userAgent": FAKE_HEADERS["User-Agent"],
+            "__userAgent": cloudflareAuth.getCookieString["User-Agent"],
             "__referrer": "",
             "to": `/a/chat/s/${refConvId}`,
             "redirect": "false",
@@ -1059,9 +1158,9 @@ async function sendEvents(refConvId: string, refreshToken: string) {
             "__pageVisibility": "true",
             "__nodeEnv": "production",
             "__deployEnv": "production",
-            "__appVersion": FAKE_HEADERS["X-App-Version"],
+            "__appVersion": cloudflareAuth.getCookieString["X-App-Version"],
             "__commitId": EVENT_COMMIT_ID,
-            "__userAgent": FAKE_HEADERS["User-Agent"],
+            "__userAgent": cloudflareAuth.getCookieString["User-Agent"],
             "__referrer": "",
             "pathname": `/a/chat/s/${refConvId}`,
             "metricVisitIndex": 0,
@@ -1083,9 +1182,9 @@ async function sendEvents(refConvId: string, refreshToken: string) {
             "__pageVisibility": "true",
             "__nodeEnv": "production",
             "__deployEnv": "production",
-            "__appVersion": FAKE_HEADERS["X-App-Version"],
+            "__appVersion": cloudflareAuth.getCookieString["X-App-Version"],
             "__commitId": EVENT_COMMIT_ID,
-            "__userAgent": FAKE_HEADERS["User-Agent"],
+            "__userAgent": cloudflareAuth.getCookieString["User-Agent"],
             "__referrer": "",
             "type": "warmStart",
             "referer": "",
@@ -1108,9 +1207,9 @@ async function sendEvents(refConvId: string, refreshToken: string) {
             "__pageVisibility": "true",
             "__nodeEnv": "production",
             "__deployEnv": "production",
-            "__appVersion": FAKE_HEADERS["X-App-Version"],
+            "__appVersion": cloudflareAuth.getCookieString["X-App-Version"],
             "__commitId": EVENT_COMMIT_ID,
-            "__userAgent": FAKE_HEADERS["User-Agent"],
+            "__userAgent": cloudflareAuth.getCookieString["User-Agent"],
             "__referrer": "",
             "url": "/api/v0/chat/completion",
             "path": "/api/v0/chat/completion",
@@ -1133,9 +1232,9 @@ async function sendEvents(refConvId: string, refreshToken: string) {
             "__pageVisibility": "true",
             "__nodeEnv": "production",
             "__deployEnv": "production",
-            "__appVersion": FAKE_HEADERS["X-App-Version"],
+            "__appVersion": cloudflareAuth.getCookieString["X-App-Version"],
             "__commitId": EVENT_COMMIT_ID,
-            "__userAgent": FAKE_HEADERS["User-Agent"],
+            "__userAgent": cloudflareAuth.getCookieString["User-Agent"],
             "__referrer": "",
             "condition": "hasDone",
             "streamClosed": false,
@@ -1148,14 +1247,14 @@ async function sendEvents(refConvId: string, refreshToken: string) {
     }, {
       headers: {
         Authorization: `Bearer ${token}`,
-        ...FAKE_HEADERS,
+        ...cloudflareAuth.getHeaders(),
         Referer: `https://chat.deepseek.com/a/chat/s/${refConvId}`,
-        Cookie: generateCookie()
+        Cookie: cloudflareAuth.getCookieString()
       },
       validateStatus: () => true,
     });
     checkResult(response, refreshToken);
-    logger.info('发送事件成功');
+    logger.info('Successfully sent events');
   }
   catch (err) {
     logger.error(err);
@@ -1170,8 +1269,8 @@ async function getThinkingQuota(refreshToken: string) {
     const response = await axios.get('https://chat.deepseek.com/api/v0/users/feature_quota', {
       headers: {
         Authorization: `Bearer ${refreshToken}`,
-        ...FAKE_HEADERS,
-        Cookie: generateCookie()
+        ...cloudflareAuth.getHeaders(),
+        Cookie: cloudflareAuth.getCookieString()
       },
       timeout: 15000,
       validateStatus: () => true,
@@ -1180,11 +1279,11 @@ async function getThinkingQuota(refreshToken: string) {
     if (!biz_data) return 0;
     const { quota, used } = biz_data.thinking;
     if (!_.isFinite(quota) || !_.isFinite(used)) return 0;
-    logger.info(`获取深度思考配额: ${quota}/${used}`);
+    logger.info(`Thinking quota: ${quota}/${used}`);
     return quota - used;
   }
   catch (err) {
-    logger.error('获取深度思考配额失败:', err);
+    logger.error('Failed to get thinking quota:', err);
     return 0;
   }
 }
@@ -1194,38 +1293,44 @@ async function getThinkingQuota(refreshToken: string) {
  */
 async function fetchAppVersion(): Promise<string> {
   try {
-    logger.info('自动获取版本号');
+    logger.info('Auto-getting version number');
     const response = await axios.get('https://chat.deepseek.com/version.txt', {
       timeout: 5000,
       validateStatus: () => true,
       headers: {
-        ...FAKE_HEADERS,
-        Cookie: generateCookie()
+        ...cloudflareAuth.getHeaders(),
+        Cookie: cloudflareAuth.getCookieString()
       }
     });
     if (response.status === 200 && response.data) {
       const version = response.data.toString().trim();
-      logger.info(`获取版本号: ${version}`);
+      logger.info(`Got version number: ${version}`);
       return version;
     }
   } catch (err) {
-    logger.error('获取版本号失败:', err);
+    logger.error('Failed to get version number:', err);
   }
   return "20241018.0";
 }
 
 function autoUpdateAppVersion() {
   fetchAppVersion().then((version) => {
-    FAKE_HEADERS["X-App-Version"] = version;
+    cloudflareAuth.getCookieString["X-App-Version"] = version;
   });
 }
 
 util.createCronJob('0 */10 * * * *', autoUpdateAppVersion).start();
 
-getIPAddress().then(() => {
-  autoUpdateAppVersion();
-}).catch((err) => {
-  logger.error('获取 IP 地址失败:', err);
+// getIPAddress().then(() => {
+//   autoUpdateAppVersion();
+//   initCloudflareAuth();
+// }).catch((err) => {
+//   logger.error('获取 IP 地址失败:', err);
+// });
+
+// 在程序退出时清理workers
+process.on('exit', async () => {
+  workerPool.forEach(worker => worker.terminate());
 });
 
 export default {
@@ -1234,4 +1339,7 @@ export default {
   getTokenLiveStatus,
   tokenSplit,
   fetchAppVersion,
+  initCloudflareAuth,
+  getIPAddress,
+  autoUpdateAppVersion
 };

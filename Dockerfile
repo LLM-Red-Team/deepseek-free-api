@@ -2,20 +2,23 @@ FROM node:lts AS BUILD_IMAGE
 
 WORKDIR /app
 
+# Installation de Playwright avec ses dépendances
+RUN  npx playwright install --with-deps chromium
+
 COPY . /app
 
-RUN yarn install --registry https://registry.npmmirror.com/ && yarn run build
+RUN yarn install &&  yarn run build
 
-FROM node:lts-alpine
+# FROM node:lts-alpine
 
-COPY --from=BUILD_IMAGE /app/configs /app/configs
-COPY --from=BUILD_IMAGE /app/package.json /app/package.json
-COPY --from=BUILD_IMAGE /app/dist /app/dist
-COPY --from=BUILD_IMAGE /app/public /app/public
-COPY --from=BUILD_IMAGE /app/*.wasm /app/
-COPY --from=BUILD_IMAGE /app/node_modules /app/node_modules
+# COPY --from=BUILD_IMAGE /app/configs /app/configs
+# COPY --from=BUILD_IMAGE /app/package.json /app/package.json
+# COPY --from=BUILD_IMAGE /app/dist /app/dist
+# COPY --from=BUILD_IMAGE /app/public /app/public
+# COPY --from=BUILD_IMAGE /app/*.wasm /app/
+# COPY --from=BUILD_IMAGE /app/node_modules /app/node_modules
 
-WORKDIR /app
+# WORKDIR /app
 
 EXPOSE 8000
 
