@@ -507,7 +507,12 @@ function messagesPrepare(messages: any[]): string {
   return mergedBlocks
     .map((block, index) => {
       if (block.role === "assistant") {
-        return `<｜Assistant｜>${block.text}<｜end▁of▁sentence｜>`;
+        // 删除思考过程
+        let text = block.text
+          .replace(/<details><summary>Thinking<\/summary><pre>[\s\S]*?<\/pre><\/details>\s*/g, '')
+          .replace(/<DeepSeek_Reasoner_Thinking>[\s\S]*?<\/DeepSeek_Reasoner_Thinking>\s*/g, '')
+          .trim();
+        return `<｜Assistant｜>${text}<｜end▁of▁sentence｜>`;
       }
       
       if (block.role === "user" || block.role === "system") {
@@ -584,14 +589,14 @@ async function receiveStream(model: string, stream: any, refConvId?: string): Pr
         if (result.choices[0].delta.type === "thinking") {
           if (!thinking && isThinkingModel && !isSilentModel) {
             thinking = true;
-            data.choices[0].message.content += isFoldModel ? "<details><summary>思考过程</summary><pre>" : "[思考开始]\n";
+            data.choices[0].message.content += isFoldModel ? "<details><summary>Thinking</summary><pre>" : "<DeepSeek_Reasoner_Thinking>\n";
           }
           if (isSilentModel)
             return;
         }
         else if (thinking && isThinkingModel && !isSilentModel) {
           thinking = false;
-          data.choices[0].message.content += isFoldModel ? "</pre></details>" : "\n\n[思考结束]\n";
+          data.choices[0].message.content += isFoldModel ? "</pre></details>" : "\n</DeepSeek_Reasoner_Thinking>\n\n";
         }
         if (result.choices[0].delta.content)
           data.choices[0].message.content += result.choices[0].delta.content;
@@ -686,7 +691,7 @@ function createTransStream(model: string, stream: any, refConvId: string, endCal
             choices: [
               {
                 index: 0,
-                delta: { role: "assistant", content: isFoldModel ? "<details><summary>思考过程</summary><pre>" : "[思考开始]\n" },
+                delta: { role: "assistant", content: isFoldModel ? "<details><summary>Thinking</summary><pre>" : "<DeepSeek_Reasoner_Thinking>\n" },
                 finish_reason: null,
               },
             ],
@@ -705,7 +710,7 @@ function createTransStream(model: string, stream: any, refConvId: string, endCal
           choices: [
             {
               index: 0,
-              delta: { role: "assistant", content: isFoldModel ? "</pre></details>" : "\n\n[思考结束]\n" },
+              delta: { role: "assistant", content: isFoldModel ? "</pre></details>" : "\n</DeepSeek_Reasoner_Thinking>\n\n" },
               finish_reason: null,
             },
           ],
