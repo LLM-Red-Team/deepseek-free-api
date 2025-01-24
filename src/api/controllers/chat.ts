@@ -253,8 +253,9 @@ async function createCompletion(
     const isSearchModel = model.includes('search') || prompt.includes('联网搜索');
     const isThinkingModel = model.includes('think') || model.includes('r1') || prompt.includes('深度思考');
 
-    if(isSearchModel && isThinkingModel)
-      throw new APIException(EX.API_REQUEST_FAILED, '深度思考和联网搜索不能同时使用');
+    // 已经支持同时使用，此处注释
+    // if(isSearchModel && isThinkingModel)
+    //   throw new APIException(EX.API_REQUEST_FAILED, '深度思考和联网搜索不能同时使用');
 
     if (isThinkingModel) {
       const thinkingQuota = await getThinkingQuota(refreshToken);
@@ -361,8 +362,9 @@ async function createCompletionStream(
     const isSearchModel = model.includes('search') || prompt.includes('联网搜索');
     const isThinkingModel = model.includes('think') || model.includes('r1') || prompt.includes('深度思考');
 
-    if(isSearchModel && isThinkingModel)
-      throw new APIException(EX.API_REQUEST_FAILED, '深度思考和联网搜索不能同时使用');
+    // 已经支持同时使用，此处注释
+    // if(isSearchModel && isThinkingModel)
+    //   throw new APIException(EX.API_REQUEST_FAILED, '深度思考和联网搜索不能同时使用');
 
     if (isThinkingModel) {
       const thinkingQuota = await getThinkingQuota(refreshToken);
