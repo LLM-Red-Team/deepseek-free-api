@@ -250,8 +250,8 @@ async function createCompletion(
     // 请求流
     const token = await acquireToken(refreshToken);
 
-    const isSearchModel = model.includes('search') || prompt.includes('联网搜索');
-    const isThinkingModel = model.includes('think') || model.includes('r1') || prompt.includes('深度思考');
+    const isSearchModel = model.includes('search');
+    const isThinkingModel = model.includes('think') || model.includes('r1');
 
     // 已经支持同时使用，此处注释
     // if(isSearchModel && isThinkingModel)
@@ -359,8 +359,8 @@ async function createCompletionStream(
     // 解析引用对话ID
     const [refSessionId, refParentMsgId] = refConvId?.split('@') || [];
 
-    const isSearchModel = model.includes('search') || prompt.includes('联网搜索');
-    const isThinkingModel = model.includes('think') || model.includes('r1') || prompt.includes('深度思考');
+    const isSearchModel = model.includes('search');
+    const isThinkingModel = model.includes('think') || model.includes('r1');
 
     // 已经支持同时使用，此处注释
     // if(isSearchModel && isThinkingModel)
