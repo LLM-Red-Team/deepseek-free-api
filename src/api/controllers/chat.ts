@@ -470,41 +470,54 @@ async function createCompletionStream(
  *
  * @param messages 参考gpt系列消息格式，多轮对话请完整提供上下文
  */
-function messagesPrepare(messages: any[]) {
-  let content;
-  if (messages.length < 2) {
-    content = messages.reduce((content, message) => {
-      if (_.isArray(message.content)) {
-        return (
-          message.content.reduce((_content, v) => {
-            if (!_.isObject(v) || v["type"] != "text") return _content;
-            return _content + (v["text"] || "") + "\n";
-          }, content)
-        );
+function messagesPrepare(messages: any[]): string {
+  // 处理消息内容
+  const processedMessages = messages.map(message => {
+    let text: string;
+    if (Array.isArray(message.content)) {
+      // 过滤出 type 为 "text" 的项并连接文本
+      const texts = message.content
+        .filter((item: any) => item.type === "text")
+        .map((item: any) => item.text);
+      text = texts.join('\n');
+    } else {
+      text = String(message.content);
+    }
+    return { role: message.role, text };
+  });
+
+  if (processedMessages.length === 0) return '';
+
+  // 合并连续相同角色的消息
+  const mergedBlocks: { role: string; text: string }[] = [];
+  let currentBlock = { ...processedMessages[0] };
+
+  for (let i = 1; i < processedMessages.length; i++) {
+    const msg = processedMessages[i];
+    if (msg.role === currentBlock.role) {
+      currentBlock.text += `\n\n${msg.text}`;
+    } else {
+      mergedBlocks.push(currentBlock);
+      currentBlock = { ...msg };
+    }
+  }
+  mergedBlocks.push(currentBlock);
+
+  // 添加标签并连接结果
+  return mergedBlocks
+    .map((block, index) => {
+      if (block.role === "assistant") {
+        return `<｜Assistant｜>${block.text}<｜end▁of▁sentence｜>`;
       }
-      return content + `${message.content}\n`;
-    }, "");
-    logger.info("\n透传内容：\n" + content);
-  }
-  else {
-    content = (
-      messages.reduce((content, message) => {
-        if (_.isArray(message.content)) {
-          return (
-            message.content.reduce((_content, v) => {
-              if (!_.isObject(v) || v["type"] != "text") return _content;
-              return _content + (`${message.role}:` + v["text"] || "") + "\n";
-            }, content)
-          );
-        }
-        return (content += `${message.role}:${message.content}\n`);
-      }, "") + "assistant:"
-    )
-      // 移除MD图像URL避免幻觉
-      .replace(/\!\[.+\]\(.+\)/g, "");
-    logger.info("\n对话合并：\n" + content);
-  }
-  return content;
+      
+      if (block.role === "user" || block.role === "system") {
+        return index > 0 ? `<｜User｜>${block.text}` : block.text;
+      }
+
+      return block.text;
+    })
+    .join('')
+    .replace(/\!\[.+\]\(.+\)/g, "");
 }
 
 /**
