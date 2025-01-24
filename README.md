@@ -253,6 +253,7 @@ Authorization: Bearer [userToken value]
     // 默认：deepseek
     // 深度思考：deepseek-think 或 deepseek-r1
     // 联网搜索：deepseek-search
+    // 深度思考+联网搜索：deepseek-r1-search 或 deepseek-think-search
     // 静默模式（不输出思考过程或联网搜索结果）：deepseek-think-silent 或 deepseek-r1-silent 或 deepseek-search-silent
     // 深度思考但思考过程使用<details>可折叠标签包裹（需要页面支持显示）：deepseek-think-fold 或 deepseek-r1-fold
     "model": "deepseek",
