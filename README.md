@@ -95,14 +95,22 @@ MiniMax（海螺AI）接口转API [hailuo-free-api](https://github.com/LLM-Red-T
 
 每次请求服务会从中挑选一个。
 
+### 环境变量（可选）
+
+| 环境变量 | 是否必填 | 说明                               |
+|------|------|----------------------------------|
+|  DEEP_SEEK_CHAT_AUTHORIZATION   | 否    | 当配置了token 则使用token，未配置则需要在请求头中传递Authorization |
+
 ## Docker部署
 
 请准备一台具有公网IP的服务器并将8000端口开放。
 
-拉取镜像并启动服务
+拉取镜像并启动服务。
 
 ```shell
-docker run -it -d --init --name deepseek-free-api -p 8000:8000 -e TZ=Asia/Shanghai vinlic/deepseek-free-api:latest
+docker run -it -d --init --name deepseek-free-api -p 8000:8000 -e TZ=Asia/Shanghai  vinlic/deepseek-free-api:latest
+# 或将token配置在环境变量
+docker run -it -d --init --name deepseek-free-api -p 8000:8000 -e TZ=Asia/Shanghai -e DEEP_SEEK_CHAT_AUTHORIZATION=xxx  vinlic/deepseek-free-api:latest
 ```
 
 查看服务实时日志
@@ -245,6 +253,7 @@ Authorization: Bearer [userToken value]
     // 默认：deepseek
     // 深度思考：deepseek-think 或 deepseek-r1
     // 联网搜索：deepseek-search
+    // 深度思考+联网搜索：deepseek-r1-search 或 deepseek-think-search
     // 静默模式（不输出思考过程或联网搜索结果）：deepseek-think-silent 或 deepseek-r1-silent 或 deepseek-search-silent
     // 深度思考但思考过程使用<details>可折叠标签包裹（需要页面支持显示）：deepseek-think-fold 或 deepseek-r1-fold
     "model": "deepseek",
