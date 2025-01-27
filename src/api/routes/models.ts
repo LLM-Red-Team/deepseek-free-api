@@ -19,6 +19,18 @@ export default {
                         "object": "model",
                         "owned_by": "deepseek-free-api",
                         "context_length": 128000,
+                    },
+                    {
+                        "id": "deepseek-r1",
+                        "object": "model",
+                        "owned_by": "deepseek-free-api",
+                        "context_length": 128000,
+                    },
+                    {
+                        "id": "deepseek-search",
+                        "object": "model",
+                        "owned_by": "deepseek-free-api",
+                        "context_length": 128000,
                     }
                 ]
             };

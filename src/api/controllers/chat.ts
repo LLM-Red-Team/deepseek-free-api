@@ -346,7 +346,7 @@ async function createCompletion(
     const token = await acquireToken(refreshToken);
 
     const isSearchModel = model.includes('search') || prompt.includes('web search');
-    const isThinkingModel = model.includes('think') || model.includes('r1') || prompt.includes('deep thinking');
+    const isThinkingModel = model.includes('think') || model.includes('reasoner') || model.includes('r1') || prompt.includes('deep thinking');
 
     if(isSearchModel && isThinkingModel)
       throw new APIException(EX.API_REQUEST_FAILED, '深度思考和联网搜索不能同时使用');
@@ -456,7 +456,7 @@ async function createCompletionStream(
     const [refSessionId, refParentMsgId] = refConvId?.split('@') || [];
 
     const isSearchModel = model.includes('search') || prompt.includes('web search');
-    const isThinkingModel = model.includes('think') || model.includes('r1') || prompt.includes('deep thinking');
+    const isThinkingModel = model.includes('think') || model.includes('reasoner') || model.includes('r1') || prompt.includes('deep thinking');
 
     if(isSearchModel && isThinkingModel)
       throw new APIException(EX.API_REQUEST_FAILED, '深度思考和联网搜索不能同时使用');
@@ -628,7 +628,7 @@ function checkResult(result: AxiosResponse, refreshToken: string) {
 async function receiveStream(model: string, stream: any, refConvId?: string): Promise<any> {
   let thinking = false;
   const isSearchModel = model.includes('search');
-  const isThinkingModel = model.includes('think') || model.includes('r1');
+  const isThinkingModel = model.includes('think') || model.includes('reasoner') || model.includes('r1');
   const isSilentModel = model.includes('silent');
   const isFoldModel = model.includes('fold');
   logger.info(`Model: ${model}, Thinking enabled: ${isThinkingModel}, Search enabled: ${isSearchModel}, Silent thinking: ${isSilentModel}, Fold thinking: ${isFoldModel}`);
@@ -707,7 +707,7 @@ async function receiveStream(model: string, stream: any, refConvId?: string): Pr
 function createTransStream(model: string, stream: any, refConvId: string, endCallback?: Function) {
   let thinking = false;
   const isSearchModel = model.includes('search');
-  const isThinkingModel = model.includes('think') || model.includes('r1');
+  const isThinkingModel = model.includes('think') || model.includes('reasoner') || model.includes('r1');
   const isSilentModel = model.includes('silent');
   const isFoldModel = model.includes('fold');
   logger.info(`Model: ${model}, Thinking enabled: ${isThinkingModel}, Search enabled: ${isSearchModel}, Silent thinking: ${isSilentModel}, Fold thinking: ${isFoldModel}`);
