@@ -355,6 +355,8 @@ async function createCompletionStream(
 
     // 消息预处理
     const prompt = messagesPrepare(messages);
+    logger.info(`messages after prepare: `);
+    logger.info(prompt);
 
     // 解析引用对话ID
     const [refSessionId, refParentMsgId] = refConvId?.split('@') || [];
@@ -507,6 +509,7 @@ function messagesPrepare(messages: any[]): string {
   return mergedBlocks
     .map((block, index) => {
       if (block.role === "assistant") {
+        block.text = block.text.replace(/<details><summary>参考检索<\/summary><pre>检索 .*<\/pre><\/details>/s, ``);
         return `<｜Assistant｜>${block.text}<｜end▁of▁sentence｜>`;
       }
       
@@ -668,7 +671,7 @@ function createTransStream(model: string, stream: any, refConvId: string, endCal
             choices: [
               {
                 index: 0,
-                delta: { role: "assistant", content: refContent },
+                delta: { role: "assistant", content: `<details><summary>参考检索</summary><pre>` + refContent + `</pre></details>` },
                 finish_reason: null,
               },
             ],
