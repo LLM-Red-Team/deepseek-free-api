@@ -298,7 +298,7 @@ Authorization: Bearer [userToken value]
 
 ### userToken存活检测
 
-检测userToken是否存活，如果存活live未true，否则为false，请不要频繁（小于10分钟）调用此接口。
+检测userToken是否存活，如果存活live为true，否则为false，请不要频繁（小于10分钟）调用此接口。
 
 **POST /token/check**
 
