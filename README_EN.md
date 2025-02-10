@@ -17,9 +17,9 @@ Here are ten more free APIs for your attention:
 
 Moonshot AI（Kimi.ai）API [kimi-free-api](https://github.com/LLM-Red-Team/kimi-free-api)
 
-GLM AI (智谱清言) API [glm-free-api](https://github.com/LLM-Red-Team/glm-free-api)
+GLM AI API [glm-free-api](https://github.com/LLM-Red-Team/glm-free-api)
 
-StepChat (跃问StepChat) API [step-free-api](https://github.com/LLM-Red-Team/step-free-api)
+StepChat API [step-free-api](https://github.com/LLM-Red-Team/step-free-api)
 
 Qwen API [qwen-free-api](https://github.com/LLM-Red-Team/qwen-free-api)
 
