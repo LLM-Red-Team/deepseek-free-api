@@ -1,5 +1,7 @@
 # DeepSeek V3 Free Service
 
+<span>[ <a href="README.md">中文</a> | English ]</span>
+
 [![](https://img.shields.io/github/license/llm-red-team/deepseek-free-api.svg)](LICENSE)
 ![](https://img.shields.io/github/stars/llm-red-team/deepseek-free-api.svg)
 ![](https://img.shields.io/github/forks/llm-red-team/deepseek-free-api.svg)
