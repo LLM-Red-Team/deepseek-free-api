@@ -29,15 +29,18 @@ const FAKE_HEADERS = {
   Priority: "u=1, i",
   Referer: "https://chat.deepseek.com/",
   "Sec-Ch-Ua":
-    '"Chromium";v="130", "Google Chrome";v="130", "Not?A_Brand";v="99"',
+    '"Chromium";v="133", "Google Chrome";v="133", "Not?A_Brand";v="99"',
   "Sec-Ch-Ua-Mobile": "?0",
   "Sec-Ch-Ua-Platform": '"Windows"',
   "Sec-Fetch-Dest": "empty",
   "Sec-Fetch-Mode": "cors",
   "Sec-Fetch-Site": "same-origin",
   "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-  "X-App-Version": "20241129.1"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+  "X-App-Version": "20241129.1",
+  "X-Client-Locale": "zh-CN",
+  "X-Client-Platform": "web",
+  "X-Client-Version": "1.0.0-always",
 };
 const EVENT_COMMIT_ID = '41e9c7b1';
 // 当前IP地址
@@ -155,7 +158,7 @@ async function createSession(model: string, refreshToken: string): Promise<strin
   const result = await axios.post(
     "https://chat.deepseek.com/api/v0/chat_session/create",
     {
-      agent: "chat",
+      character_id: null
     },
     {
       headers: {
