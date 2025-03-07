@@ -220,6 +220,38 @@ async function getChallengeResponse(refreshToken: string, targetPath: string) {
 }
 
 /**
+ * 移除会话
+ *
+ * 在对话流传输完毕后移除会话，避免创建的会话出现在用户的对话列表中
+ *
+ * @param refreshToken 用于刷新access_token的refresh_token
+ */
+async function removeConversation(
+  convId: string,
+  refreshToken: string
+) {
+  logger.info(`Removing conversation: ${convId}`);
+  const token = await acquireToken(refreshToken);
+
+  const result = await axios.post(
+    "https://chat.deepseek.com/api/v0/chat_session/delete",
+    {
+      chat_session_id: convId,
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...FAKE_HEADERS,
+        Cookie: generateCookie()
+      },
+      timeout: 15000,
+      validateStatus: () => true,
+    }
+  );
+  checkResult(result, refreshToken);
+}
+
+/**
  * 同步对话补全
  *
  * @param model 模型名称
@@ -309,6 +341,10 @@ async function createCompletion(
     const streamStartTime = util.timestamp();
     // 接收流为输出文本
     const answer = await receiveStream(model, result.data, sessionId);
+    // 异步移除会话
+    removeConversation(sessionId, refreshToken).catch(err => {
+      console.log(err)
+    });
     logger.success(
       `Stream has completed transfer ${util.timestamp() - streamStartTime}ms`
     );
@@ -446,6 +482,10 @@ async function createCompletionStream(
       logger.success(
         `Stream has completed transfer ${util.timestamp() - streamStartTime}ms`
       );
+      // 异步移除会话
+      removeConversation(sessionId, refreshToken).catch(err => {
+        console.log(err)
+      });
     });
   })().catch((err) => {
     if (retryCount < MAX_RETRY_COUNT) {
