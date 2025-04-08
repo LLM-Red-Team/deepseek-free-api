@@ -23,20 +23,20 @@ const RETRY_DELAY = 5000;
 const FAKE_HEADERS = {
   Accept: "*/*",
   "Accept-Encoding": "gzip, deflate, br, zstd",
-  "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+  "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
   Origin: "https://chat.deepseek.com",
   Pragma: "no-cache",
   Priority: "u=1, i",
   Referer: "https://chat.deepseek.com/",
   "Sec-Ch-Ua":
-    '"Chromium";v="133", "Google Chrome";v="133", "Not?A_Brand";v="99"',
+    '"Chromium";v="134", "Not:A-Brand";v="24", "Google Chrome";v="134"',
   "Sec-Ch-Ua-Mobile": "?0",
-  "Sec-Ch-Ua-Platform": '"Windows"',
+  "Sec-Ch-Ua-Platform": '"macOS"',
   "Sec-Fetch-Dest": "empty",
   "Sec-Fetch-Mode": "cors",
   "Sec-Fetch-Site": "same-origin",
   "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
   "X-App-Version": "20241129.1",
   "X-Client-Locale": "zh-CN",
   "X-Client-Platform": "web",
@@ -93,7 +93,8 @@ async function requestToken(refreshToken: string) {
         validateStatus: () => true,
       }
     );
-    const { token } = checkResult(result, refreshToken);
+    const { biz_data } = checkResult(result, refreshToken);
+    const { token } = biz_data;
     return {
       accessToken: token,
       refreshToken: token,
@@ -210,7 +211,7 @@ async function getChallengeResponse(refreshToken: string, targetPath: string) {
     headers: {
       Authorization: `Bearer ${token}`,
       ...FAKE_HEADERS,
-      Cookie: generateCookie()
+      // Cookie: generateCookie()
     },
     timeout: 15000,
     validateStatus: () => true,
@@ -248,8 +249,6 @@ async function createCompletion(
     // 解析引用对话ID
     const [refSessionId, refParentMsgId] = refConvId?.split('@') || [];
 
-    // 创建会话
-    const sessionId = refSessionId || await createSession(model, refreshToken);
     // 请求流
     const token = await acquireToken(refreshToken);
 
@@ -270,6 +269,9 @@ async function createCompletion(
     const challengeResponse = await getChallengeResponse(refreshToken, '/api/v0/chat/completion');
     const challenge = await answerChallenge(challengeResponse, '/api/v0/chat/completion');
     logger.info(`插冷鸡: ${challenge}`);
+
+    // 创建会话
+    const sessionId = refSessionId || await createSession(model, refreshToken);
 
     const result = await axios.post(
       "https://chat.deepseek.com/api/v0/chat/completion",
