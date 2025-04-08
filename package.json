@@ -2,7 +2,6 @@
   "name": "deepseek-free-api",
   "version": "0.0.20",
   "description": "DeepSeek Free API Server",
-  "type": "module",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
