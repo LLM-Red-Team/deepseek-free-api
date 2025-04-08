@@ -1,26 +1,28 @@
 {
+    "version": 2,
     "builds": [
         {
-            "src": "./dist/*.html",
-            "use": "@vercel/static"
+            "src": "dist/index.js",
+            "use": "@vercel/node"
         },
         {
-            "src": "./dist/index.js",
-            "use": "@vercel/node"
+            "src": "public/**",
+            "use": "@vercel/static"
         }
     ],
     "routes": [
         {
             "src": "/",
-            "dest": "/dist/welcome.html"
+            "dest": "public/welcome.html"
         },
         {
             "src": "/(.*)",
-            "dest": "/dist",
+            "dest": "dist/index.js",
             "headers": {
                 "Access-Control-Allow-Credentials": "true",
+                "Access-Control-Allow-Origin": "*",
                 "Access-Control-Allow-Methods": "GET,OPTIONS,PATCH,DELETE,POST,PUT",
-                "Access-Control-Allow-Headers": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Content-Type, Authorization"
+                "Access-Control-Allow-Headers": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization"
             }
         }
     ]
