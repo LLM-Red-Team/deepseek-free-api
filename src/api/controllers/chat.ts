@@ -23,21 +23,24 @@ const RETRY_DELAY = 5000;
 const FAKE_HEADERS = {
   Accept: "*/*",
   "Accept-Encoding": "gzip, deflate, br, zstd",
-  "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+  "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
   Origin: "https://chat.deepseek.com",
   Pragma: "no-cache",
   Priority: "u=1, i",
   Referer: "https://chat.deepseek.com/",
   "Sec-Ch-Ua":
-    '"Chromium";v="130", "Google Chrome";v="130", "Not?A_Brand";v="99"',
+    '"Chromium";v="134", "Not:A-Brand";v="24", "Google Chrome";v="134"',
   "Sec-Ch-Ua-Mobile": "?0",
-  "Sec-Ch-Ua-Platform": '"Windows"',
+  "Sec-Ch-Ua-Platform": '"macOS"',
   "Sec-Fetch-Dest": "empty",
   "Sec-Fetch-Mode": "cors",
   "Sec-Fetch-Site": "same-origin",
   "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-  "X-App-Version": "20241129.1"
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+  "X-App-Version": "20241129.1",
+  "X-Client-Locale": "zh-CN",
+  "X-Client-Platform": "web",
+  "X-Client-Version": "1.0.0-always",
 };
 const EVENT_COMMIT_ID = '41e9c7b1';
 // 当前IP地址
@@ -155,7 +158,7 @@ async function createSession(model: string, refreshToken: string): Promise<strin
   const result = await axios.post(
     "https://chat.deepseek.com/api/v0/chat_session/create",
     {
-      agent: "chat",
+      character_id: null
     },
     {
       headers: {
@@ -207,7 +210,7 @@ async function getChallengeResponse(refreshToken: string, targetPath: string) {
     headers: {
       Authorization: `Bearer ${token}`,
       ...FAKE_HEADERS,
-      Cookie: generateCookie()
+      // Cookie: generateCookie()
     },
     timeout: 15000,
     validateStatus: () => true,
@@ -245,16 +248,15 @@ async function createCompletion(
     // 解析引用对话ID
     const [refSessionId, refParentMsgId] = refConvId?.split('@') || [];
 
-    // 创建会话
-    const sessionId = refSessionId || await createSession(model, refreshToken);
     // 请求流
     const token = await acquireToken(refreshToken);
 
     const isSearchModel = model.includes('search') || prompt.includes('联网搜索');
     const isThinkingModel = model.includes('think') || model.includes('r1') || prompt.includes('深度思考');
 
-    if(isSearchModel && isThinkingModel)
-      throw new APIException(EX.API_REQUEST_FAILED, '深度思考和联网搜索不能同时使用');
+    // 已经支持同时使用，此处注释
+    // if(isSearchModel && isThinkingModel)
+    //   throw new APIException(EX.API_REQUEST_FAILED, '深度思考和联网搜索不能同时使用');
 
     if (isThinkingModel) {
       const thinkingQuota = await getThinkingQuota(refreshToken);
@@ -266,6 +268,9 @@ async function createCompletion(
     const challengeResponse = await getChallengeResponse(refreshToken, '/api/v0/chat/completion');
     const challenge = await answerChallenge(challengeResponse, '/api/v0/chat/completion');
     logger.info(`插冷鸡: ${challenge}`);
+
+    // 创建会话
+    const sessionId = refSessionId || await createSession(model, refreshToken);
 
     const result = await axios.post(
       "https://chat.deepseek.com/api/v0/chat/completion",
@@ -361,8 +366,9 @@ async function createCompletionStream(
     const isSearchModel = model.includes('search') || prompt.includes('联网搜索');
     const isThinkingModel = model.includes('think') || model.includes('r1') || prompt.includes('深度思考');
 
-    if(isSearchModel && isThinkingModel)
-      throw new APIException(EX.API_REQUEST_FAILED, '深度思考和联网搜索不能同时使用');
+    // 已经支持同时使用，此处注释
+    // if(isSearchModel && isThinkingModel)
+    //   throw new APIException(EX.API_REQUEST_FAILED, '深度思考和联网搜索不能同时使用');
 
     if (isThinkingModel) {
       const thinkingQuota = await getThinkingQuota(refreshToken);
@@ -468,41 +474,54 @@ async function createCompletionStream(
  *
  * @param messages 参考gpt系列消息格式，多轮对话请完整提供上下文
  */
-function messagesPrepare(messages: any[]) {
-  let content;
-  if (messages.length < 2) {
-    content = messages.reduce((content, message) => {
-      if (_.isArray(message.content)) {
-        return (
-          message.content.reduce((_content, v) => {
-            if (!_.isObject(v) || v["type"] != "text") return _content;
-            return _content + (v["text"] || "") + "\n";
-          }, content)
-        );
+function messagesPrepare(messages: any[]): string {
+  // 处理消息内容
+  const processedMessages = messages.map(message => {
+    let text: string;
+    if (Array.isArray(message.content)) {
+      // 过滤出 type 为 "text" 的项并连接文本
+      const texts = message.content
+        .filter((item: any) => item.type === "text")
+        .map((item: any) => item.text);
+      text = texts.join('\n');
+    } else {
+      text = String(message.content);
+    }
+    return { role: message.role, text };
+  });
+
+  if (processedMessages.length === 0) return '';
+
+  // 合并连续相同角色的消息
+  const mergedBlocks: { role: string; text: string }[] = [];
+  let currentBlock = { ...processedMessages[0] };
+
+  for (let i = 1; i < processedMessages.length; i++) {
+    const msg = processedMessages[i];
+    if (msg.role === currentBlock.role) {
+      currentBlock.text += `\n\n${msg.text}`;
+    } else {
+      mergedBlocks.push(currentBlock);
+      currentBlock = { ...msg };
+    }
+  }
+  mergedBlocks.push(currentBlock);
+
+  // 添加标签并连接结果
+  return mergedBlocks
+    .map((block, index) => {
+      if (block.role === "assistant") {
+        return `<｜Assistant｜>${block.text}<｜end▁of▁sentence｜>`;
       }
-      return content + `${message.content}\n`;
-    }, "");
-    logger.info("\n透传内容：\n" + content);
-  }
-  else {
-    content = (
-      messages.reduce((content, message) => {
-        if (_.isArray(message.content)) {
-          return (
-            message.content.reduce((_content, v) => {
-              if (!_.isObject(v) || v["type"] != "text") return _content;
-              return _content + (`${message.role}:` + v["text"] || "") + "\n";
-            }, content)
-          );
-        }
-        return (content += `${message.role}:${message.content}\n`);
-      }, "") + "assistant:"
-    )
-      // 移除MD图像URL避免幻觉
-      .replace(/\!\[.+\]\(.+\)/g, "");
-    logger.info("\n对话合并：\n" + content);
-  }
-  return content;
+      
+      if (block.role === "user" || block.role === "system") {
+        return index > 0 ? `<｜User｜>${block.text}` : block.text;
+      }
+
+      return block.text;
+    })
+    .join('')
+    .replace(/\!\[.+\]\(.+\)/g, "");
 }
 
 /**
@@ -543,7 +562,7 @@ async function receiveStream(model: string, stream: any, refConvId?: string): Pr
       choices: [
         {
           index: 0,
-          message: { role: "assistant", content: "" },
+          message: { role: "assistant", content: "", reasoning_content: "" },
           finish_reason: "stop",
         },
       ],
@@ -566,20 +585,25 @@ async function receiveStream(model: string, stream: any, refConvId?: string): Pr
           refContent += searchResults.map(item => `${item.title} - ${item.url}`).join('\n');
           return;
         }
-        if (result.choices[0].delta.type === "thinking") {
+        if (isFoldModel && result.choices[0].delta.type === "thinking") {
           if (!thinking && isThinkingModel && !isSilentModel) {
             thinking = true;
-            data.choices[0].message.content += isFoldModel ? "<details><summary>思考过程</summary><pre>" : "[思考开始]";
+            data.choices[0].message.content += isFoldModel ? "<details><summary>思考过程</summary><pre>" : "[思考开始]\n";
           }
           if (isSilentModel)
             return;
         }
-        else if (thinking && isThinkingModel && !isSilentModel) {
+        else if (isFoldModel && thinking && isThinkingModel && !isSilentModel) {
           thinking = false;
-          data.choices[0].message.content += isFoldModel ? "</pre></details>" : "[思考结束]";
+          data.choices[0].message.content += isFoldModel ? "</pre></details>" : "\n\n[思考结束]\n";
         }
-        if (result.choices[0].delta.content)
-          data.choices[0].message.content += result.choices[0].delta.content;
+        if (result.choices[0].delta.content) {
+          if(result.choices[0].delta.type === "thinking" && !isFoldModel){
+            data.choices[0].message.reasoning_content += result.choices[0].delta.content;
+          }else {
+            data.choices[0].message.content += result.choices[0].delta.content;
+          }
+        }
         if (result.choices && result.choices[0] && result.choices[0].finish_reason === "stop") {
           data.choices[0].message.content = data.choices[0].message.content.replace(/^\n+/, '').replace(/\[citation:\d+\]/g, '') + (refContent ? `\n\n搜索结果来自：\n${refContent}` : '');
           resolve(data);
@@ -625,7 +649,7 @@ function createTransStream(model: string, stream: any, refConvId: string, endCal
         choices: [
           {
             index: 0,
-            delta: { role: "assistant", content: "" },
+            delta: { role: "assistant", content: "" , reasoning_content: "" },
             finish_reason: null,
           },
         ],
@@ -661,7 +685,7 @@ function createTransStream(model: string, stream: any, refConvId: string, endCal
         }
         return;
       }
-      if (result.choices[0].delta.type === "thinking") {
+      if (isFoldModel && result.choices[0].delta.type === "thinking") {
         if (!thinking && isThinkingModel && !isSilentModel) {
           thinking = true;
           transStream.write(`data: ${JSON.stringify({
@@ -671,7 +695,7 @@ function createTransStream(model: string, stream: any, refConvId: string, endCal
             choices: [
               {
                 index: 0,
-                delta: { role: "assistant", content: isFoldModel ? "<details><summary>思考过程</summary><pre>" : "[思考开始]" },
+                delta: { role: "assistant", content: isFoldModel ? "<details><summary>思考过程</summary><pre>" : "[思考开始]\n" },
                 finish_reason: null,
               },
             ],
@@ -681,7 +705,7 @@ function createTransStream(model: string, stream: any, refConvId: string, endCal
         if (isSilentModel)
           return;
       }
-      else if (thinking && isThinkingModel && !isSilentModel) {
+      else if (isFoldModel && thinking && isThinkingModel && !isSilentModel) {
         thinking = false;
         transStream.write(`data: ${JSON.stringify({
           id: `${refConvId}@${result.message_id}`,
@@ -690,7 +714,7 @@ function createTransStream(model: string, stream: any, refConvId: string, endCal
           choices: [
             {
               index: 0,
-              delta: { role: "assistant", content: isFoldModel ? "</pre></details>" : "[思考结束]" },
+              delta: { role: "assistant", content: isFoldModel ? "</pre></details>" : "\n\n[思考结束]\n" },
               finish_reason: null,
             },
           ],
@@ -701,6 +725,11 @@ function createTransStream(model: string, stream: any, refConvId: string, endCal
       if (!result.choices[0].delta.content)
         return;
 
+      const deltaContent = result.choices[0].delta.content.replace(/\[citation:\d+\]/g, '');
+      const delta = result.choices[0].delta.type === "thinking" && !isFoldModel
+          ? { role: "assistant", reasoning_content: deltaContent }
+          : { role: "assistant", content: deltaContent };
+
       transStream.write(`data: ${JSON.stringify({
         id: `${refConvId}@${result.message_id}`,
         model: result.model,
@@ -708,12 +737,13 @@ function createTransStream(model: string, stream: any, refConvId: string, endCal
         choices: [
           {
             index: 0,
-            delta: { role: "assistant", content: result.choices[0].delta.content.replace(/\[citation:\d+\]/g, '') },
+            delta,
             finish_reason: null,
           },
         ],
         created,
       })}\n\n`);
+
       if (result.choices && result.choices[0] && result.choices[0].finish_reason === "stop") {
         transStream.write(`data: ${JSON.stringify({
           id: `${refConvId}@${result.message_id}`,

@@ -1,9 +1,15 @@
 # DeepSeek V3 Free 服务
 
+<span>[ 中文 | <a href="README_EN.md">English</a> ]</span>
+
 [![](https://img.shields.io/github/license/llm-red-team/deepseek-free-api.svg)](LICENSE)
 ![](https://img.shields.io/github/stars/llm-red-team/deepseek-free-api.svg)
 ![](https://img.shields.io/github/forks/llm-red-team/deepseek-free-api.svg)
 ![](https://img.shields.io/docker/pulls/vinlic/deepseek-free-api.svg)
+
+# 风险警告
+
+## **近期，我们发现部分自媒体引导用户将本仓库源码或镜像部署至非个人使用渠道，并公开提供服务。此行为可能违反了DeepSeek的[《用户协议》](https://chat.deepseek.com/downloads/DeepSeek%20Terms%20of%20Use.html)。我们特此提醒，请相关自媒体和个人立即停止此类不当行为。若持续违规，DeepSeek官方将保留依法追究其法律责任的权利。**
 
 支持高速流式输出、支持多轮对话、支持联网搜索、支持R1深度思考和静默深度思考，零配置部署，多路token支持。
 
@@ -79,7 +85,7 @@ MiniMax（海螺AI）接口转API [hailuo-free-api](https://github.com/LLM-Red-T
 
 ## 接入准备
 
-请确保您在中国境内或者拥有中国境内的服务器，否则部署后可能因无法访问DeepSeek而无法使用。
+请确保您在中国境内或者拥有中国境内的个人计算设备，否则部署后可能因无法访问DeepSeek而无法使用。
 
 从 [DeepSeek](https://chat.deepseek.com/) 获取userToken value
 
@@ -95,20 +101,19 @@ MiniMax（海螺AI）接口转API [hailuo-free-api](https://github.com/LLM-Red-T
 
 每次请求服务会从中挑选一个。
 
-### 环境变量
+### 环境变量（可选）
 
 | 环境变量 | 是否必填 | 说明                               |
 |------|------|----------------------------------|
 |  DEEP_SEEK_CHAT_AUTHORIZATION   | 否    | 当配置了token 则使用token，未配置则需要在请求头中传递Authorization |
 
-
 ## Docker部署
 
-请准备一台具有公网IP的服务器并将8000端口开放。
-
-拉取镜像并启动服务，DEEP_SEEK_CHAT_AUTHORIZATION 环境变量为chatweb网页版本的token。
+拉取镜像并启动服务。
 
 ```shell
+docker run -it -d --init --name deepseek-free-api -p 8000:8000 -e TZ=Asia/Shanghai  vinlic/deepseek-free-api:latest
+# 或将token配置在环境变量
 docker run -it -d --init --name deepseek-free-api -p 8000:8000 -e TZ=Asia/Shanghai -e DEEP_SEEK_CHAT_AUTHORIZATION=xxx  vinlic/deepseek-free-api:latest
 ```
 
@@ -174,8 +179,6 @@ vercel --prod
 ```
 
 ## 原生部署
-
-请准备一台具有公网IP的服务器并将8000端口开放。
 
 请先安装好Node.js环境并且配置好环境变量，确认node命令可用。
 
@@ -252,6 +255,7 @@ Authorization: Bearer [userToken value]
     // 默认：deepseek
     // 深度思考：deepseek-think 或 deepseek-r1
     // 联网搜索：deepseek-search
+    // 深度思考+联网搜索：deepseek-r1-search 或 deepseek-think-search
     // 静默模式（不输出思考过程或联网搜索结果）：deepseek-think-silent 或 deepseek-r1-silent 或 deepseek-search-silent
     // 深度思考但思考过程使用<details>可折叠标签包裹（需要页面支持显示）：deepseek-think-fold 或 deepseek-r1-fold
     "model": "deepseek",
@@ -296,7 +300,7 @@ Authorization: Bearer [userToken value]
 
 ### userToken存活检测
 
-检测userToken是否存活，如果存活live未true，否则为false，请不要频繁（小于10分钟）调用此接口。
+检测userToken是否存活，如果存活live为true，否则为false，请不要频繁（小于10分钟）调用此接口。
 
 **POST /token/check**
 
