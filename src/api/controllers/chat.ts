@@ -90,10 +90,10 @@ async function requestToken(refreshToken: string) {
         validateStatus: () => true,
       }
     );
-    const { token } = checkResult(result, refreshToken);
+    const { biz_data } = checkResult(result, refreshToken);
     return {
-      accessToken: token,
-      refreshToken: token,
+      accessToken: biz_data.token,
+      refreshToken: biz_data.token,
       refreshTime: util.unixTimestamp() + ACCESS_TOKEN_EXPIRES,
     };
   })()
