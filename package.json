@@ -12,9 +12,13 @@
     "dist/"
   ],
   "scripts": {
-    "dev": "tsup src/index.ts --format cjs,esm --sourcemap --dts --publicDir public --watch --onSuccess \"node --enable-source-maps --no-node-snapshot dist/index.js\"",
-    "start": "node --enable-source-maps --no-node-snapshot dist/index.js",
-    "build": "tsup src/index.ts --format cjs,esm --sourcemap --dts --clean --publicDir public"
+    "dev": "tsup src/index.ts --format cjs,esm --sourcemap --dts --publicDir public --watch --onSuccess \"node --enable-source-maps dist/index.js\"",
+    "build": "tsup src/index.ts --format cjs,esm --sourcemap --dts --clean --publicDir public",
+    "start": "node dist/index.js",
+    "vercel-build": "yarn build"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   },
   "author": "Vinlic",
   "license": "ISC",
